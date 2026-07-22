@@ -20,8 +20,8 @@ function dilijanvillas_get_booking_settings()
 {
     $defaults = array(
         'currency' => 'AMD',
-        'base_nightly_rate' => 120,
-        'weekend_multiplier' => 1,
+        // base_nightly_rate / weekend_multiplier moved to per-page ACF fields
+        // on Cottage and Private villa pages — see dilijanvillas_get_accommodation_pricing().
         'season_start' => '',
         'season_end' => '',
         'season_rate' => 0,
@@ -236,8 +236,6 @@ function dilijanvillas_sanitize_booking_settings($input)
 
     return array(
         'currency' => !empty($input['currency']) ? sanitize_text_field((string) $input['currency']) : 'AMD',
-        'base_nightly_rate' => isset($input['base_nightly_rate']) ? max(0, (float) $input['base_nightly_rate']) : 120,
-        'weekend_multiplier' => isset($input['weekend_multiplier']) ? max(1, (float) $input['weekend_multiplier']) : 1,
         'season_start' => !empty($input['season_start']) ? sanitize_text_field((string) $input['season_start']) : '',
         'season_end' => !empty($input['season_end']) ? sanitize_text_field((string) $input['season_end']) : '',
         'season_rate' => isset($input['season_rate']) ? max(0, (float) $input['season_rate']) : 0,
@@ -274,12 +272,12 @@ function dilijanvillas_render_booking_settings_page()
             <td><input id="currency" type="text" name="<?php echo esc_attr(DILIJANVILLAS_BOOKING_SETTINGS_KEY); ?>[currency]" value="<?php echo esc_attr((string) $settings['currency']); ?>" class="regular-text" /></td>
           </tr>
           <tr>
-            <th scope="row"><label for="base_nightly_rate"><?php esc_html_e('Base nightly rate', 'dilijanvillas'); ?></label></th>
-            <td><input id="base_nightly_rate" type="number" min="0" step="0.01" name="<?php echo esc_attr(DILIJANVILLAS_BOOKING_SETTINGS_KEY); ?>[base_nightly_rate]" value="<?php echo esc_attr((string) $settings['base_nightly_rate']); ?>" /></td>
-          </tr>
-          <tr>
-            <th scope="row"><label for="weekend_multiplier"><?php esc_html_e('Weekend multiplier', 'dilijanvillas'); ?></label></th>
-            <td><input id="weekend_multiplier" type="number" min="1" step="0.01" name="<?php echo esc_attr(DILIJANVILLAS_BOOKING_SETTINGS_KEY); ?>[weekend_multiplier]" value="<?php echo esc_attr((string) $settings['weekend_multiplier']); ?>" /></td>
+            <th scope="row"><?php esc_html_e('Nightly rate & weekend multiplier', 'dilijanvillas'); ?></th>
+            <td>
+              <p class="description">
+                <?php esc_html_e('Now set per unit, in the "Booking pricing" block when editing a Cottage or Private villa page — each unit can have its own price.', 'dilijanvillas'); ?>
+              </p>
+            </td>
           </tr>
           <tr>
             <th scope="row"><?php esc_html_e('Seasonal override', 'dilijanvillas'); ?></th>
@@ -761,8 +759,13 @@ function dilijanvillas_check_booking_availability($accommodation_id, $start_date
 function dilijanvillas_calculate_booking_price($start_date, $end_date, $accommodation_id = 0)
 {
     $settings = dilijanvillas_get_booking_settings();
-    $base_rate = max(0, (float) $settings['base_nightly_rate']);
-    $weekend_multiplier = max(1, (float) $settings['weekend_multiplier']);
+
+    // Rate and weekend surcharge are per unit — see the "Booking pricing"
+    // block on the Cottage / Private villa page.
+    $unit_pricing = dilijanvillas_get_accommodation_pricing((int) $accommodation_id);
+    $base_rate = $unit_pricing['base_rate'];
+    $weekend_multiplier = $unit_pricing['weekend_multiplier'];
+
     $season_start = (string) $settings['season_start'];
     $season_end = (string) $settings['season_end'];
     $season_rate = max(0, (float) $settings['season_rate']);
@@ -847,6 +850,64 @@ function dilijanvillas_calculate_booking_price($start_date, $end_date, $accommod
  * @param int $accommodation_id Accommodation page ID.
  * @return array<int,array<string,mixed>>
  */
+/**
+ * Nightly pricing configured on an accommodation page.
+ *
+ * Replaces the former site-wide base_nightly_rate / weekend_multiplier
+ * settings, which could not express a different price per unit.
+ *
+ * @param int $accommodation_id Cottage / Private villa page ID.
+ * @return array{base_rate:float,weekend_multiplier:float}
+ */
+function dilijanvillas_get_accommodation_pricing($accommodation_id)
+{
+    $accommodation_id = (int) $accommodation_id;
+    if ($accommodation_id <= 0 || !function_exists('get_field')) {
+        return array('base_rate' => 0.0, 'weekend_multiplier' => 1.0);
+    }
+
+    // Every Polylang translation holds its own field values, so fall back to a
+    // sibling translation and a rate entered once applies in all languages.
+    $candidates = array($accommodation_id);
+    if (function_exists('pll_get_post_translations')) {
+        $translations = pll_get_post_translations($accommodation_id);
+        if (is_array($translations)) {
+            foreach ($translations as $translated_id) {
+                $translated_id = (int) $translated_id;
+                if ($translated_id > 0 && !in_array($translated_id, $candidates, true)) {
+                    $candidates[] = $translated_id;
+                }
+            }
+        }
+    }
+
+    $base_rate = null;
+    $weekend_multiplier = null;
+
+    foreach ($candidates as $candidate_id) {
+        if ($base_rate === null) {
+            $raw = get_field('stay_base_nightly_rate', $candidate_id);
+            if ($raw !== null && $raw !== '' && (float) $raw > 0) {
+                $base_rate = (float) $raw;
+            }
+        }
+        if ($weekend_multiplier === null) {
+            $raw = get_field('stay_weekend_multiplier', $candidate_id);
+            if ($raw !== null && $raw !== '' && (float) $raw > 0) {
+                $weekend_multiplier = max(1.0, (float) $raw);
+            }
+        }
+        if ($base_rate !== null && $weekend_multiplier !== null) {
+            break;
+        }
+    }
+
+    return array(
+        'base_rate' => $base_rate === null ? 0.0 : max(0.0, $base_rate),
+        'weekend_multiplier' => $weekend_multiplier === null ? 1.0 : $weekend_multiplier,
+    );
+}
+
 function dilijanvillas_get_price_periods($accommodation_id)
 {
     $accommodation_id = (int) $accommodation_id;
