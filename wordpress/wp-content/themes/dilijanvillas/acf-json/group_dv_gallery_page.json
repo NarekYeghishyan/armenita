@@ -1,0 +1,122 @@
+{
+    "key": "group_dv_gallery_page",
+    "title": "Gallery Page",
+    "fields": [
+        {
+            "key": "field_dv_gallery_tab_hero",
+            "label": "Hero",
+            "name": "hero",
+            "type": "tab",
+            "placement": "top"
+        },
+        {
+            "key": "field_dv_gallery_video_home",
+            "label": "Video",
+            "name": "video_home",
+            "type": "file",
+            "return_format": "url",
+            "library": "all",
+            "mime_types": "mp4,webm,mov"
+        },
+        {
+            "key": "field_dv_gallery_beground_img",
+            "label": "Background image",
+            "name": "beground_img",
+            "type": "image",
+            "return_format": "url",
+            "preview_size": "medium",
+            "library": "all"
+        },
+        {
+            "key": "field_dv_gallery_title_small",
+            "label": "Title small",
+            "name": "title_small",
+            "type": "text"
+        },
+        {
+            "key": "field_dv_gallery_title_big",
+            "label": "Title big",
+            "name": "title_big",
+            "type": "text"
+        },
+        {
+            "key": "field_dv_gallery_description",
+            "label": "Description",
+            "name": "description",
+            "type": "textarea",
+            "rows": 3
+        },
+        {
+            "key": "field_dv_gallery_text_direction",
+            "label": "Text direction",
+            "name": "text_direction",
+            "type": "select",
+            "choices": {
+                "Center": "Center",
+                "Bottom": "Bottom"
+            },
+            "default_value": "Center",
+            "return_format": "value"
+        },
+        {
+            "key": "field_dv_gallery_text_orentation",
+            "label": "Text orentation",
+            "name": "text_orentation",
+            "type": "select",
+            "choices": {
+                "Left": "Left",
+                "Center": "Center"
+            },
+            "default_value": "Center",
+            "return_format": "value"
+        },
+        {
+            "key": "field_dv_gallery_tab_gallery",
+            "label": "Gallery",
+            "name": "gallery_section",
+            "type": "tab",
+            "placement": "top"
+        },
+        {
+            "key": "field_dv_gallery_page",
+            "label": "Gallery",
+            "name": "gallery_page",
+            "type": "gallery",
+            "instructions": "Add photos for the gallery page grid.",
+            "return_format": "array",
+            "preview_size": "medium",
+            "insert": "append",
+            "library": "all"
+        },
+        {
+            "key": "field_dv_gallery_bg_section",
+            "label": "Background of section gallery",
+            "name": "background_of_section_gallery",
+            "type": "image",
+            "return_format": "url",
+            "preview_size": "medium",
+            "library": "all"
+        }
+    ],
+    "location": [
+        [
+            {
+                "param": "page_template",
+                "operator": "==",
+                "value": "gallery.php"
+            }
+        ]
+    ],
+    "menu_order": 0,
+    "position": "normal",
+    "style": "default",
+    "label_placement": "top",
+    "instruction_placement": "label",
+    "hide_on_screen": [
+        "the_content"
+    ],
+    "active": true,
+    "description": "",
+    "show_in_rest": 0,
+    "modified": 1749254400
+}

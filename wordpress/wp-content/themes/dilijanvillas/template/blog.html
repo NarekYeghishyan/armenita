@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <script>
+      (function () {
+        try {
+          var u = new URL(window.location.href);
+          var p = u.pathname;
+          if (!p.endsWith("/")) p = p.replace(/\/[^/]+$/, "/");
+          u.pathname = p;
+          u.hash = "";
+          u.search = "";
+          var b = document.createElement("base");
+          b.href = u.href;
+          var h = document.head || document.getElementsByTagName("head")[0];
+          if (h) h.insertBefore(b, h.firstChild);
+        } catch (e) {}
+      })();
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="Armenita Family Resort - Blog" />
+    <meta name="theme-color" content="#121820" />
+    <title>Armenita Family Resort Blog</title>
+    <link rel="icon" href="./images/logo-new.png" type="image/png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Outfit:wght@300;400;500;600;700&family=Noto+Sans+Armenian:wght@300;400;500;600;700&family=Noto+Serif+Armenian:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./css/styles.css" />
+  </head>
+  <body class="has-hero-header">
+    <div class="mesh" aria-hidden="true"></div>
+    <div class="noise" aria-hidden="true"></div>
+    <div id="top" class="scroll-anchor" aria-hidden="true"></div>
+
+    <header class="header" id="site-header">
+      <button type="button" class="header__burger" id="menu-toggle" aria-label="Menu" aria-expanded="false" aria-controls="primary-nav" data-menu-toggle>
+        <span class="header__burger-line" aria-hidden="true"></span>
+        <span class="header__burger-line" aria-hidden="true"></span>
+        <span class="header__burger-line" aria-hidden="true"></span>
+      </button>
+      <a class="header__brand header__brand--nav" href="./index.html#top" data-i18n-aria="hero_title">
+        <img class="header__logo" src="./images/logo-new.png" alt="" width="48" height="48" />
+      </a>
+      <nav class="header__nav" id="primary-nav" aria-label="Primary">
+        <div class="header__menu-drawer">
+          <div class="header__track header__track--left">
+            <div class="header__item">
+              <a class="header__link" href="./about.html">About us</a>
+            </div>
+            <div class="header__item">
+              <a class="header__link" href="./book-stay.html">Book your stay</a>
+            </div>
+            <div class="header__item">
+              <a class="header__link" href="./events.html">Events</a>
+            </div>
+          </div>
+          <div class="header__track header__track--right">
+            <a class="header__link" href="./offers.html" data-i18n="nav_gallery">???????????</a>
+            <a class="header__link" href="./map.html" data-i18n="nav_videos">??????</a>
+            <a class="header__link header__link--active" href="./blog.html">Blog</a>
+            <div class="lang">
+              <select id="site-lang" class="lang__select" name="site-lang" data-lang-select data-i18n-aria="lang_select_aria" aria-label="Language">
+                <option value="hy">???</option>
+                <option value="ru">???</option>
+                <option value="en">EN</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </nav>
+      <div class="header__backdrop" data-menu-close aria-hidden="true"></div>
+    </header>
+
+    <main>
+      <section class="about-cinematic about-cinematic--page-hero" id="hero" aria-label="Blog">
+        <div class="about-cinematic__veil"></div>
+        <div class="container about-cinematic__content">
+          <p class="hero__eyebrow"><span class="hero__line"></span><span>Blog</span></p>
+          <h1 class="about-cinematic__title">News and stories from Armenita Family Resort</h1>
+          <p class="about-cinematic__lead">
+            This page is ready for blog posts. You can add articles, travel tips, and updates here.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer__shell">
+        <div class="footer__brand-row">
+          <span class="footer__name" data-i18n="hero_title">Armenita Family Resort</span>
+          <span class="footer__dot" aria-hidden="true"></span>
+          <span class="footer__tag" data-i18n="footer_tag">????????</span>
+        </div>
+        <p class="footer__copy">© 2024 Armenita Family Resort. All rights reserved.</p>
+      </div>
+    </footer>
+
+    <script src="./js/app.js" defer></script>
+  </body>
+</html>

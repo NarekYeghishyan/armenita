@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <script>
+      (function () {
+        try {
+          var u = new URL(window.location.href);
+          var p = u.pathname;
+          if (!p.endsWith("/")) p = p.replace(/\/[^/]+$/, "/");
+          u.pathname = p;
+          u.hash = "";
+          u.search = "";
+          var b = document.createElement("base");
+          b.href = u.href;
+          var h = document.head || document.getElementsByTagName("head")[0];
+          if (h) h.insertBefore(b, h.firstChild);
+        } catch (e) {}
+      })();
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="Armenita Family Resort - map and contact" />
+    <meta name="theme-color" content="#121820" />
+    <title>Armenita Family Resort Map</title>
+    <link rel="icon" href="./images/logo-new.png" type="image/png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Outfit:wght@300;400;500;600;700&family=Noto+Sans+Armenian:wght@300;400;500;600;700&family=Noto+Serif+Armenian:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./css/styles.css" />
+  </head>
+  <body>
+    <div class="mesh" aria-hidden="true"></div>
+    <div class="noise" aria-hidden="true"></div>
+    <div id="top" class="scroll-anchor" aria-hidden="true"></div>
+
+    <header class="header" id="site-header">
+      <button type="button" class="header__burger" id="menu-toggle" aria-label="Menu" aria-expanded="false" aria-controls="primary-nav" data-menu-toggle>
+        <span class="header__burger-line" aria-hidden="true"></span>
+        <span class="header__burger-line" aria-hidden="true"></span>
+        <span class="header__burger-line" aria-hidden="true"></span>
+      </button>
+      <a class="header__brand header__brand--nav" href="./index.html#top" data-i18n-aria="hero_title">
+        <img class="header__logo" src="./images/logo-new.png" alt="" width="48" height="48" />
+      </a>
+      <nav class="header__nav" id="primary-nav" aria-label="Primary">
+        <div class="header__menu-drawer">
+        <div class="header__track header__track--left">
+        <div class="header__item">
+          <a class="header__link" href="./about.html">About us</a>
+        </div>
+        <div class="header__item header__item--dropdown" data-nav-dropdown>
+          <button type="button" class="header__link header__link--button header__link--dropdown" aria-expanded="false" data-dropdown-toggle data-dropdown-url="./book-stay.html">
+            <span data-i18n="nav_book_stay">Book your stay</span>
+          </button>
+          <div class="header__dropdown" data-dropdown-panel>
+            <div class="header__dropdown-hub">
+              <a class="header__dropdown-hub-link" href="./book-stay.html" data-i18n="nav_dropdown_full_page">Open full page</a>
+            </div>
+            <div class="header__dropdown-preview">
+              <video class="header__dropdown-video" data-dropdown-video autoplay muted loop playsinline preload="metadata">
+                <source src="./videos/1273967704269299.mp4" type="video/mp4" data-dropdown-video-source />
+              </video>
+              <h3 class="header__dropdown-panel-title" data-dropdown-panel-title>Cottage 1</h3>
+              <p class="header__dropdown-panel-intro" data-dropdown-panel-intro>
+                Our signature family cottage closest to the garden paths?ideal for small families who want quiet mornings and easy access to Dilijan's green surroundings.
+              </p>
+              <p class="header__dropdown-desc" data-i18n="stay_desc_1" data-dropdown-description>
+                ????????? ?????? ???????? ?????? ??????? ??????????? ?????:
+              </p>
+            </div>
+            <div class="header__dropdown-links">
+              <div class="header__dropdown-groups">
+                <div class="header__dropdown-group">
+                  <p class="header__dropdown-heading" data-i18n="stay_heading">Villas</p>
+                  <a
+                    class="header__sublink"
+                    href="./stay.html?unit=cottage-1"
+                    data-dropdown-link
+                    data-dropdown-video="./videos/1273967704269299.mp4"
+                    data-dropdown-desc-key="stay_desc_1"
+                    data-dropdown-title-key="stay_title_1"
+                    data-dropdown-intro-key="stay_intro_1"
+                    data-i18n="stay_label_1"
+                  >Cottage 1</a>
+                  <a
+                    class="header__sublink"
+                    href="./stay.html?unit=cottage-2"
+                    data-dropdown-link
+                    data-dropdown-video="./videos/1538888158242097.mp4"
+                    data-dropdown-desc-key="stay_desc_2"
+                    data-dropdown-title-key="stay_title_2"
+                    data-dropdown-intro-key="stay_intro_2"
+                    data-i18n="stay_label_2"
+                  >Cottage 2</a>
+                </div>
+                <div class="header__dropdown-group">
+                  <p class="header__dropdown-heading" data-i18n="stay_villas_heading">Private villas</p>
+                  <a
+                    class="header__sublink"
+                    href="./stay.html?unit=villa-1"
+                    data-dropdown-link
+                    data-dropdown-video="./videos/2440293959732669.mp4"
+                    data-dropdown-desc-key="stay_desc_3"
+                    data-dropdown-title-key="stay_title_3"
+                    data-dropdown-intro-key="stay_intro_3"
+                    data-i18n="stay_label_3"
+                  >Private villa 1</a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="header__item header__item--dropdown" data-nav-dropdown>
+          <button type="button" class="header__link header__link--button header__link--dropdown" aria-expanded="false" data-dropdown-toggle data-dropdown-url="./events.html">
+            <span data-i18n="nav_stay">????????????????</span>
+          </button>
+          <div class="header__dropdown" data-dropdown-panel>
+            <div class="header__dropdown-hub">
+              <a class="header__dropdown-hub-link" href="./events.html" data-i18n="nav_dropdown_full_page">Open full page</a>
+            </div>
+            <div class="header__dropdown-preview">
+              <img
+                class="header__dropdown-image"
+                src="./images/504327955_17896732026230600_4835684111846667008_n.jpg"
+                alt="Events preview"
+                data-dropdown-image
+                loading="lazy"
+              />
+              <h3 class="header__dropdown-panel-title" data-dropdown-panel-title>Nature &amp; rest tour</h3>
+              <p class="header__dropdown-panel-intro" data-dropdown-panel-intro>
+                Easy-paced days around forests, viewpoints, and picnic-style stops?great for couples and small groups who want fresh air without a packed schedule.
+              </p>
+              <p class="header__dropdown-desc" data-i18n="tour_desc_1" data-dropdown-description>
+                ???????? ? ??????? ???? ???????? ????? ???????????:
+              </p>
+              <a class="header__dropdown-whatsapp" href="https://wa.me/37494605665" target="_blank" rel="noopener noreferrer" aria-label="WhatsApp">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.52 3.48A11.86 11.86 0 0 0 12.06 0C5.5 0 .16 5.33.16 11.9c0 2.1.55 4.16 1.6 5.98L0 24l6.3-1.64a11.8 11.8 0 0 0 5.76 1.48h.01c6.56 0 11.9-5.34 11.9-11.9 0-3.18-1.24-6.17-3.45-8.46zM12.07 21.8h-.01a9.83 9.83 0 0 1-5.01-1.37l-.36-.22-3.74.97 1-3.65-.24-.38a9.84 9.84 0 0 1-1.5-5.25c0-5.44 4.42-9.86 9.86-9.86 2.63 0 5.1 1.02 6.96 2.9a9.78 9.78 0 0 1 2.88 6.95c0 5.44-4.43 9.87-9.84 9.87zm5.4-7.4c-.3-.15-1.78-.88-2.06-.98-.28-.1-.48-.15-.68.15-.2.3-.78.98-.95 1.18-.18.2-.35.23-.65.08-.3-.15-1.25-.46-2.38-1.47-.88-.78-1.47-1.75-1.65-2.05-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.53.15-.18.2-.3.3-.5.1-.2.05-.38-.03-.53-.08-.15-.68-1.64-.94-2.25-.25-.6-.5-.5-.68-.51h-.58c-.2 0-.53.08-.8.38-.28.3-1.05 1.03-1.05 2.5s1.08 2.9 1.23 3.1c.15.2 2.12 3.24 5.14 4.54.72.31 1.28.5 1.72.64.72.23 1.37.2 1.88.12.58-.09 1.78-.73 2.03-1.43.25-.7.25-1.3.18-1.43-.07-.13-.27-.2-.57-.35z"/></svg>
+                <span>WhatsApp</span>
+              </a>
+            </div>
+            <div class="header__dropdown-links">
+              <div class="header__dropdown-groups">
+                <div class="header__dropdown-group">
+                  <p class="header__dropdown-heading" data-i18n="nav_tours">Restaurant</p>
+                  <a
+                    class="header__sublink"
+                    href="./events.html#tours"
+                    data-dropdown-link
+                    data-dropdown-image="./images/504327955_17896732026230600_4835684111846667008_n.jpg"
+                    data-dropdown-desc-key="tour_desc_1"
+                    data-dropdown-title-key="tour_title_1"
+                    data-dropdown-intro-key="tour_intro_1"
+                    data-i18n="tour_label_1"
+                  >???? 1</a>
+                  <a
+                    class="header__sublink"
+                    href="./events.html#tours"
+                    data-dropdown-link
+                    data-dropdown-image="./images/514012761_17898102333230600_2575461312152910766_n.jpg"
+                    data-dropdown-desc-key="tour_desc_2"
+                    data-dropdown-title-key="tour_title_2"
+                    data-dropdown-intro-key="tour_intro_2"
+                    data-i18n="tour_label_2"
+                  >???? 2</a>
+                </div>
+                <div class="header__dropdown-group">
+                  <p class="header__dropdown-heading" data-i18n="diving_heading">Adventure & Leisure</p>
+                  <a
+                    class="header__sublink"
+                    href="./events.html#diving"
+                    data-dropdown-link
+                    data-dropdown-image="./images/506132448_122183172770307960_8060175010565024578_n.jpg"
+                    data-dropdown-desc-key="diving_desc_1"
+                    data-dropdown-title-key="diving_title_1"
+                    data-dropdown-intro-key="diving_intro_1"
+                    data-i18n="diving_label_1"
+                  >Diving 1</a>
+                  <a
+                    class="header__sublink"
+                    href="./events.html#diving"
+                    data-dropdown-link
+                    data-dropdown-image="./images/658903849_17930385360230600_7047285425196588211_n.jpg"
+                    data-dropdown-desc-key="diving_desc_2"
+                    data-dropdown-title-key="diving_title_2"
+                    data-dropdown-intro-key="diving_intro_2"
+                    data-i18n="diving_label_2"
+                  >Diving 2</a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        </div>
+        <div class="header__track header__track--right">
+        <a class="header__link" href="./offers.html" data-i18n="nav_gallery">???????????</a>
+        <a class="header__link header__link--active" href="./map.html" data-i18n="nav_videos">??????</a>
+        <a class="header__link" href="./blog.html">Blog</a>
+        <div class="lang">
+          <select id="site-lang" class="lang__select" name="site-lang" data-lang-select data-i18n-aria="lang_select_aria" aria-label="Language">
+            <option value="hy">???</option>
+            <option value="ru">???</option>
+            <option value="en">EN</option>
+          </select>
+        </div>
+        </div>
+        </div>
+      </nav>
+      <div class="header__backdrop" data-menu-close aria-hidden="true"></div>
+    </header>
+
+    <main>
+      <section class="section map-page" id="map-page">
+        <iframe
+          class="map-page__frame"
+          loading="lazy"
+          referrerpolicy="no-referrer-when-downgrade"
+          allowfullscreen
+          title="Google Maps"
+          data-i18n-aria="contact_map_aria"
+          src="https://maps.google.com/maps?width=100%25&amp;height=600&amp;hl=hy&amp;q=40.73973875595698%2C%2044.851870306840816&amp;t=&amp;z=16&amp;ie=UTF8&amp;iwloc=B&amp;output=embed"
+        ></iframe>
+        <a
+          class="btn btn--primary map-page__open-btn"
+          href="https://www.google.com/maps?q=40.73973875595698,44.851870306840816"
+          target="_blank"
+          rel="noopener noreferrer"
+        >Open in Google Maps</a>
+      </section>
+
+      <section class="section section--contact map-contact" id="contact">
+        <div class="container">
+          <div class="contact">
+            <div class="contact__info-card reveal" data-reveal>
+              <div class="contact__text">
+                <h2 class="section__title reveal" data-reveal data-i18n="contact_title">???</h2>
+                <p class="contact__intro reveal" data-reveal data-i18n="contact_intro">?????????? ??? ???? Instagram-???:</p>
+                <address class="contact__block contact__block--card reveal" data-reveal>
+                  <p class="contact__row">
+                    <span class="contact__icon" aria-hidden="true">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                    </span>
+                    <span data-i18n="contact_address">Armenia, Dilijan, Armenia, 3901</span>
+                  </p>
+                  <p class="contact__row contact__row--phone">
+                    <span class="contact__icon" aria-hidden="true">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                    </span>
+                    <a class="contact__link" href="tel:+37494605665"><span data-i18n="contact_phone">094 605665</span></a>
+                    <a class="header__dropdown-whatsapp contact__wa-inline" href="https://wa.me/37494605665" target="_blank" rel="noopener noreferrer" aria-label="WhatsApp">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.52 3.48A11.86 11.86 0 0 0 12.06 0C5.5 0 .16 5.33.16 11.9c0 2.1.55 4.16 1.6 5.98L0 24l6.3-1.64a11.8 11.8 0 0 0 5.76 1.48h.01c6.56 0 11.9-5.34 11.9-11.9 0-3.18-1.24-6.17-3.45-8.46zM12.07 21.8h-.01a9.83 9.83 0 0 1-5.01-1.37l-.36-.22-3.74.97 1-3.65-.24-.38a9.84 9.84 0 0 1-1.5-5.25c0-5.44 4.42-9.86 9.86-9.86 2.63 0 5.1 1.02 6.96 2.9a9.78 9.78 0 0 1 2.88 6.95c0 5.44-4.43 9.87-9.84 9.87zm5.4-7.4c-.3-.15-1.78-.88-2.06-.98-.28-.1-.48-.15-.68.15-.2.3-.78.98-.95 1.18-.18.2-.35.23-.65.08-.3-.15-1.25-.46-2.38-1.47-.88-.78-1.47-1.75-1.65-2.05-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.53.15-.18.2-.3.3-.5.1-.2.05-.38-.03-.53-.08-.15-.68-1.64-.94-2.25-.25-.6-.5-.5-.68-.51h-.58c-.2 0-.53.08-.8.38-.28.3-1.05 1.03-1.05 2.5s1.08 2.9 1.23 3.1c.15.2 2.12 3.24 5.14 4.54.72.31 1.28.5 1.72.64.72.23 1.37.2 1.88.12.58-.09 1.78-.73 2.03-1.43.25-.7.25-1.3.18-1.43-.07-.13-.27-.2-.57-.35z"/></svg>
+                      <span>WhatsApp</span>
+                    </a>
+                  </p>
+                  <p class="contact__row">
+                    <span class="contact__icon" aria-hidden="true">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
+                    </span>
+                    <a class="contact__link" href="https://www.instagram.com/dilijan_villas/" target="_blank" rel="noopener noreferrer"><span data-i18n="contact_instagram">Instagram ? @dilijan_villas</span></a>
+                  </p>
+                  <p class="contact__row">
+                    <span class="contact__icon" aria-hidden="true">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3V2z"/></svg>
+                    </span>
+                    <a class="contact__link" href="https://www.facebook.com/profile.php?id=61559238815878" target="_blank" rel="noopener noreferrer"><span data-i18n="contact_facebook">Facebook</span></a>
+                  </p>
+                </address>
+              </div>
+              <div class="map-contact__quick-icons" aria-label="Quick contact actions">
+                <a class="map-contact__icon-link" href="https://www.google.com/maps?q=40.73973875595698,44.851870306840816" target="_blank" rel="noopener noreferrer" aria-label="Open location">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                </a>
+                <a class="map-contact__icon-link" href="tel:+37494605665" aria-label="Call us">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                </a>
+                <a class="map-contact__icon-link" href="https://wa.me/37494605665" target="_blank" rel="noopener noreferrer" aria-label="WhatsApp">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.52 3.48A11.86 11.86 0 0 0 12.06 0C5.5 0 .16 5.33.16 11.9c0 2.1.55 4.16 1.6 5.98L0 24l6.3-1.64a11.8 11.8 0 0 0 5.76 1.48h.01c6.56 0 11.9-5.34 11.9-11.9 0-3.18-1.24-6.17-3.45-8.46zM12.07 21.8h-.01a9.83 9.83 0 0 1-5.01-1.37l-.36-.22-3.74.97 1-3.65-.24-.38a9.84 9.84 0 0 1-1.5-5.25c0-5.44 4.42-9.86 9.86-9.86 2.63 0 5.1 1.02 6.96 2.9a9.78 9.78 0 0 1 2.88 6.95c0 5.44-4.43 9.87-9.84 9.87zm5.4-7.4c-.3-.15-1.78-.88-2.06-.98-.28-.1-.48-.15-.68.15-.2.3-.78.98-.95 1.18-.18.2-.35.23-.65.08-.3-.15-1.25-.46-2.38-1.47-.88-.78-1.47-1.75-1.65-2.05-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.53.15-.18.2-.3.3-.5.1-.2.05-.38-.03-.53-.08-.15-.68-1.64-.94-2.25-.25-.6-.5-.5-.68-.51h-.58c-.2 0-.53.08-.8.38-.28.3-1.05 1.03-1.05 2.5s1.08 2.9 1.23 3.1c.15.2 2.12 3.24 5.14 4.54.72.31 1.28.5 1.72.64.72.23 1.37.2 1.88.12.58-.09 1.78-.73 2.03-1.43.25-.7.25-1.3.18-1.43-.07-.13-.27-.2-.57-.35z"/></svg>
+                </a>
+                <a class="map-contact__icon-link" href="https://www.instagram.com/dilijan_villas/" target="_blank" rel="noopener noreferrer" aria-label="Instagram">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2.2" y="2.2" width="19.6" height="19.6" rx="5"/><circle cx="12" cy="12" r="4.1"/><circle cx="17.3" cy="6.7" r="1.1" fill="currentColor" stroke="none"/></svg>
+                </a>
+              </div>
+              <div class="contact__quote-inline reveal" data-reveal>
+                <figure class="contact__quote contact__quote--inline">
+                  <p class="contact__quote-brand">Armenita Family Resort</p>
+                  <blockquote class="contact__tagline">
+                    <span data-i18n="contact_tagline">??? ??????? ???????? ??????????:</span>
+                  </blockquote>
+                </figure>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer__shell">
+        <div class="footer__brand-row">
+          <span class="footer__name">Armenita Family Resort</span>
+          <span class="footer__dot" aria-hidden="true"></span>
+          <span class="footer__tag">Armenia</span>
+        </div>
+        <p class="footer__copy">? 2024 Armenita Family Resort. All rights reserved.</p>
+        <p class="footer__legal">
+          <a href="#">Privacy Policy</a>
+          <span aria-hidden="true">|</span>
+          <a href="#">Terms of Service</a>
+        </p>
+        <p class="footer__credit">
+          Site by <a href="https://creativeweb.am/" target="_blank" rel="noopener noreferrer">Creative Web</a>
+        </p>
+      </div>
+    </footer>
+
+    <button type="button" class="scroll-top" data-scroll-top hidden aria-hidden="true" data-i18n-aria="footer_top_aria">
+      <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 15l-6-6-6 6" /></svg>
+    </button>
+
+    <script src="./js/app.js" defer></script>
+  </body>
+</html>

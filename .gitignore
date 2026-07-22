@@ -1,0 +1,36 @@
+# This repository tracks the dilijanvillas WordPress theme only.
+#
+# The working directory also holds ~11 GB that must never reach GitHub:
+# full site backups ("Old wp from domen"), raw photo/video downloads,
+# WordPress core, and database dumps containing real customer data.
+# So everything is excluded by default and the theme is added back explicitly.
+
+/*
+!/.gitignore
+!/README.md
+
+!/wordpress/
+/wordpress/*
+!/wordpress/wp-content/
+/wordpress/wp-content/*
+!/wordpress/wp-content/themes/
+/wordpress/wp-content/themes/*
+!/wordpress/wp-content/themes/dilijanvillas/
+
+# Source video stays out of git — it belongs in the WordPress media library.
+/wordpress/wp-content/themes/dilijanvillas/videos/
+
+# Local secrets / deploy credentials. Redundant against the catch-all above,
+# kept explicit so loosening that rule cannot leak them by accident.
+.vscode/sftp.json
+.vscode/sftp.json.local
+wp-config.php
+.env
+.env.*
+!.env.example
+
+# Editor / OS noise.
+.history/
+.DS_Store
+Thumbs.db
+node_modules/
