@@ -20,8 +20,7 @@ function dilijanvillas_get_booking_settings()
 {
     $defaults = array(
         'currency' => 'AMD',
-        // base_nightly_rate / weekend_multiplier moved to per-page ACF fields
-        // on Cottage and Private villa pages — see dilijanvillas_get_accommodation_pricing().
+        // Nightly prices live in Price period entries, not in these settings.
         'season_start' => '',
         'season_end' => '',
         'season_rate' => 0,
@@ -760,11 +759,9 @@ function dilijanvillas_calculate_booking_price($start_date, $end_date, $accommod
 {
     $settings = dilijanvillas_get_booking_settings();
 
-    // Rate and weekend surcharge are per unit — see the "Booking pricing"
-    // block on the Cottage / Private villa page.
-    $unit_pricing = dilijanvillas_get_accommodation_pricing((int) $accommodation_id);
-    $base_rate = $unit_pricing['base_rate'];
-    $weekend_multiplier = $unit_pricing['weekend_multiplier'];
+    // Prices come from Price period entries. A night with no period stays at
+    // zero and leaves has_admin_price false, which blocks the booking.
+    $base_rate = 0.0;
 
     $season_start = (string) $settings['season_start'];
     $season_end = (string) $settings['season_end'];
@@ -804,30 +801,20 @@ function dilijanvillas_calculate_booking_price($start_date, $end_date, $accommod
         }
 
         $custom_rate = null;
-        $custom_rate_skip_weekend = false;
         foreach ($price_periods as $period) {
             if (!isset($period['start'], $period['end'], $period['rate'])) {
                 continue;
             }
             if ($date_key >= $period['start'] && $date_key <= $period['end']) {
                 $custom_rate = (float) $period['rate'];
-                $custom_rate_skip_weekend = !empty($period['skip_weekend_multiplier']);
                 break;
             }
         }
 
+        // The period rate is the price as entered — no weekend surcharge.
         if ($custom_rate !== null && $custom_rate >= 0) {
             $rate = $custom_rate;
-            $day_of_week = (int) gmdate('N', $night_ts);
-            if ($day_of_week >= 5 && empty($custom_rate_skip_weekend)) {
-                $rate *= $weekend_multiplier;
-            }
             $covered_nights++;
-        } else {
-            $day_of_week = (int) gmdate('N', $night_ts);
-            if ($day_of_week >= 5) {
-                $rate *= $weekend_multiplier;
-            }
         }
 
         $total += $rate;
@@ -851,61 +838,70 @@ function dilijanvillas_calculate_booking_price($start_date, $end_date, $accommod
  * @return array<int,array<string,mixed>>
  */
 /**
- * Nightly pricing configured on an accommodation page.
+ * Weekdays that count as the weekend for the minimum-stay rule.
  *
- * Replaces the former site-wide base_nightly_rate / weekend_multiplier
- * settings, which could not express a different price per unit.
+ * ISO-8601 day numbers as returned by date('N'): 5 = Friday, 6 = Saturday,
+ * 7 = Sunday.
  *
- * @param int $accommodation_id Cottage / Private villa page ID.
- * @return array{base_rate:float,weekend_multiplier:float}
+ * @return array<int,int>
  */
-function dilijanvillas_get_accommodation_pricing($accommodation_id)
+function dilijanvillas_weekend_day_numbers()
 {
-    $accommodation_id = (int) $accommodation_id;
-    if ($accommodation_id <= 0 || !function_exists('get_field')) {
-        return array('base_rate' => 0.0, 'weekend_multiplier' => 1.0);
+    return array(5, 6, 7);
+}
+
+/**
+ * Minimum nights demanded because the stay touches a weekend.
+ *
+ * Each Price period carries a "Weekend multiplier": when the requested stay
+ * includes a Friday, Saturday or Sunday priced by that period, the stay must
+ * be at least that many nights. The strictest matching period wins.
+ *
+ * @param int    $accommodation_id Accommodation page ID.
+ * @param string $start_date       Check-in (Y-m-d).
+ * @param string $end_date         Check-out (Y-m-d).
+ * @return int Required nights, 0 when nothing applies.
+ */
+function dilijanvillas_get_weekend_min_nights($accommodation_id, $start_date, $end_date)
+{
+    $start = strtotime($start_date . ' 12:00:00');
+    $end = strtotime($end_date . ' 12:00:00');
+    if (!$start || !$end || $end < $start) {
+        return 0;
     }
 
-    // Every Polylang translation holds its own field values, so fall back to a
-    // sibling translation and a rate entered once applies in all languages.
-    $candidates = array($accommodation_id);
-    if (function_exists('pll_get_post_translations')) {
-        $translations = pll_get_post_translations($accommodation_id);
-        if (is_array($translations)) {
-            foreach ($translations as $translated_id) {
-                $translated_id = (int) $translated_id;
-                if ($translated_id > 0 && !in_array($translated_id, $candidates, true)) {
-                    $candidates[] = $translated_id;
-                }
-            }
-        }
+    $price_periods = dilijanvillas_get_price_periods((int) $accommodation_id);
+    if (empty($price_periods)) {
+        return 0;
     }
 
-    $base_rate = null;
-    $weekend_multiplier = null;
+    $weekend_days = dilijanvillas_weekend_day_numbers();
+    $nights = (int) round(($end - $start) / DAY_IN_SECONDS) + 1;
+    $required = 0;
 
-    foreach ($candidates as $candidate_id) {
-        if ($base_rate === null) {
-            $raw = get_field('stay_base_nightly_rate', $candidate_id);
-            if ($raw !== null && $raw !== '' && (float) $raw > 0) {
-                $base_rate = (float) $raw;
-            }
+    for ($i = 0; $i < $nights; $i++) {
+        $night_ts = strtotime('+' . $i . ' day', $start);
+        if (!in_array((int) gmdate('N', $night_ts), $weekend_days, true)) {
+            continue;
         }
-        if ($weekend_multiplier === null) {
-            $raw = get_field('stay_weekend_multiplier', $candidate_id);
-            if ($raw !== null && $raw !== '' && (float) $raw > 0) {
-                $weekend_multiplier = max(1.0, (float) $raw);
+
+        $date_key = gmdate('Y-m-d', $night_ts);
+        foreach ($price_periods as $period) {
+            if (!isset($period['start'], $period['end'])) {
+                continue;
             }
-        }
-        if ($base_rate !== null && $weekend_multiplier !== null) {
+            if ($date_key < $period['start'] || $date_key > $period['end']) {
+                continue;
+            }
+            $min_nights = isset($period['weekend_min_nights']) ? (int) $period['weekend_min_nights'] : 0;
+            if ($min_nights > $required) {
+                $required = $min_nights;
+            }
             break;
         }
     }
 
-    return array(
-        'base_rate' => $base_rate === null ? 0.0 : max(0.0, $base_rate),
-        'weekend_multiplier' => $weekend_multiplier === null ? 1.0 : $weekend_multiplier,
-    );
+    return $required;
 }
 
 function dilijanvillas_get_price_periods($accommodation_id)
@@ -973,7 +969,7 @@ function dilijanvillas_get_price_periods($accommodation_id)
         $start = (string) get_post_meta((int) $period_id, '_dv_price_start', true);
         $end = (string) get_post_meta((int) $period_id, '_dv_price_end', true);
         $rate = (float) get_post_meta((int) $period_id, '_dv_price_rate', true);
-        $skip_weekend = (string) get_post_meta((int) $period_id, '_dv_price_skip_weekend_multiplier', true);
+        $weekend_min_nights = (int) get_post_meta((int) $period_id, '_dv_price_weekend_min_nights', true);
         if (!dilijanvillas_is_valid_booking_date($start) || !dilijanvillas_is_valid_booking_date($end)) {
             continue;
         }
@@ -986,7 +982,7 @@ function dilijanvillas_get_price_periods($accommodation_id)
             'start' => $start,
             'end' => $end,
             'rate' => max(0, $rate),
-            'skip_weekend_multiplier' => $skip_weekend === '1',
+            'weekend_min_nights' => max(0, $weekend_min_nights),
         );
     }
 
@@ -2047,6 +2043,7 @@ function dilijanvillas_ajax_check_booking()
 
     $availability = dilijanvillas_check_booking_availability($accommodation_id, $start_date, $end_date);
     $price = dilijanvillas_calculate_booking_price($start_date, $end_date, $accommodation_id);
+    $weekend_min_nights = dilijanvillas_get_weekend_min_nights($accommodation_id, $start_date, $end_date);
 
     wp_send_json_success(
         array(
@@ -2055,6 +2052,8 @@ function dilijanvillas_ajax_check_booking()
             'source' => isset($availability['source']) ? (string) $availability['source'] : '',
             'sourceId' => isset($availability['sourceId']) ? (int) $availability['sourceId'] : 0,
             'price' => $price,
+            'weekend_min_nights' => $weekend_min_nights,
+            'weekend_min_nights_met' => $weekend_min_nights <= 0 || (int) $price['nights'] >= $weekend_min_nights,
         )
     );
 }
@@ -2121,6 +2120,29 @@ function dilijanvillas_ajax_create_booking()
     }
 
     $price = dilijanvillas_calculate_booking_price($start_date, $end_date, $accommodation_id);
+
+    // Weekend minimum stay, configured per Price period. Enforced here because
+    // the browser check can be bypassed.
+    $weekend_min_nights = dilijanvillas_get_weekend_min_nights($accommodation_id, $start_date, $end_date);
+    if ($weekend_min_nights > 0 && (int) $price['nights'] < $weekend_min_nights) {
+        wp_send_json_error(
+            array(
+                'message' => sprintf(
+                    /* translators: %d: minimum number of nights */
+                    _n(
+                        'Weekend stays require at least %d night.',
+                        'Weekend stays require at least %d nights.',
+                        $weekend_min_nights,
+                        'dilijanvillas'
+                    ),
+                    $weekend_min_nights
+                ),
+                'weekend_min_nights' => $weekend_min_nights,
+            ),
+            409
+        );
+    }
+
     $accommodation_title = $accommodation_id > 0 ? (string) get_the_title((int) $accommodation_id) : '';
     if ($accommodation_title === '') {
         $accommodation_title = __('Accommodation', 'dilijanvillas');
@@ -2692,7 +2714,7 @@ function dilijanvillas_render_price_period_metabox($post)
     $start = (string) get_post_meta($post->ID, '_dv_price_start', true);
     $end = (string) get_post_meta($post->ID, '_dv_price_end', true);
     $rate = (string) get_post_meta($post->ID, '_dv_price_rate', true);
-    $skip_weekend = (string) get_post_meta($post->ID, '_dv_price_skip_weekend_multiplier', true);
+    $weekend_min_nights = (string) get_post_meta($post->ID, '_dv_price_weekend_min_nights', true);
     $note = (string) get_post_meta($post->ID, '_dv_price_note', true);
 
     $settings = dilijanvillas_get_booking_settings();
@@ -2767,11 +2789,17 @@ function dilijanvillas_render_price_period_metabox($post)
         <td>
           <input id="dv_price_period_rate" type="number" min="0" step="0.01" name="dv_price_period_rate" value="<?php echo esc_attr($rate); ?>" class="small-text" />
           <code style="margin-left:6px;"><?php echo esc_html($currency); ?></code>
-          <p class="description"><?php esc_html_e('This rate replaces the default base/season rate for every night inside the period.', 'dilijanvillas'); ?></p>
-          <label style="display:block;margin-top:6px;">
-            <input type="checkbox" name="dv_price_period_skip_weekend" value="1" <?php checked($skip_weekend, '1'); ?> />
-            <?php esc_html_e('Use this rate exactly — do NOT apply the weekend multiplier on Fri/Sat/Sun', 'dilijanvillas'); ?>
-          </label>
+          <p class="description"><?php esc_html_e('Charged as entered for every night inside the period.', 'dilijanvillas'); ?></p>
+        </td>
+      </tr>
+      <tr>
+        <th scope="row"><label for="dv_price_period_weekend_min_nights"><?php esc_html_e('Weekend multiplier', 'dilijanvillas'); ?></label></th>
+        <td>
+          <input id="dv_price_period_weekend_min_nights" type="number" min="0" step="1" name="dv_price_period_weekend_min_nights" value="<?php echo esc_attr($weekend_min_nights); ?>" class="small-text" />
+          <?php esc_html_e('nights minimum', 'dilijanvillas'); ?>
+          <p class="description">
+            <?php esc_html_e('Minimum length of stay when the dates include a Friday, Saturday or Sunday inside this period. Example: set 2, and a guest picking Saturday cannot book fewer than 2 nights. Leave 0 or empty for no restriction.', 'dilijanvillas'); ?>
+          </p>
         </td>
       </tr>
       <tr>
@@ -2824,7 +2852,7 @@ function dilijanvillas_save_price_period_metabox($post_id)
     $start = isset($_POST['dv_price_period_start']) ? sanitize_text_field((string) $_POST['dv_price_period_start']) : '';
     $end = isset($_POST['dv_price_period_end']) ? sanitize_text_field((string) $_POST['dv_price_period_end']) : '';
     $rate = isset($_POST['dv_price_period_rate']) ? max(0, (float) $_POST['dv_price_period_rate']) : 0;
-    $skip_weekend = isset($_POST['dv_price_period_skip_weekend']) && (string) $_POST['dv_price_period_skip_weekend'] === '1' ? '1' : '0';
+    $weekend_min_nights = isset($_POST['dv_price_period_weekend_min_nights']) ? max(0, (int) $_POST['dv_price_period_weekend_min_nights']) : 0;
     $note = isset($_POST['dv_price_period_note']) ? sanitize_textarea_field((string) $_POST['dv_price_period_note']) : '';
 
     delete_post_meta($post_id, '_dv_accommodation_ids');
@@ -2842,7 +2870,7 @@ function dilijanvillas_save_price_period_metabox($post_id)
     update_post_meta($post_id, '_dv_apply_all_languages', $apply_all_languages ? '1' : '0');
     update_post_meta($post_id, '_dv_price_status', $status);
     update_post_meta($post_id, '_dv_price_rate', $rate);
-    update_post_meta($post_id, '_dv_price_skip_weekend_multiplier', $skip_weekend);
+    update_post_meta($post_id, '_dv_price_weekend_min_nights', $weekend_min_nights);
     update_post_meta($post_id, '_dv_price_note', $note);
 
     if (dilijanvillas_is_valid_booking_date($start)) {

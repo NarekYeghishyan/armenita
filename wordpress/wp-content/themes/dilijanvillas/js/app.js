@@ -112,6 +112,8 @@
       booking_price_label: "Գնահատված ընդհանուր",
       booking_price_currency: "AMD",
       booking_submit_pay: "Վճարել",
+      booking_msg_weekend_min_nights:
+        "Հանգստյան օրերով ամրագրումը պետք է լինի առնվազն %d գիշեր։",
       booking_msg_payment_failed:
         "Չհաջողվեց բացել վճարման էջը։ Ձեր հայտը պահպանվել է — խնդրում ենք կապվել մեզ հետ վճարումն ավարտելու համար։",
       booking_submit_check: "Ուղարկել հայտը",
@@ -267,6 +269,8 @@
       booking_price_label: "Ориентировочная сумма",
       booking_price_currency: "AMD",
       booking_submit_pay: "Оплатить",
+      booking_msg_weekend_min_nights:
+        "Бронирование с выходными днями — минимум %d ночей.",
       booking_msg_payment_failed:
         "Не удалось открыть страницу оплаты. Заявка сохранена — свяжитесь с нами, чтобы завершить платёж.",
       booking_submit_check: "Отправить заявку",
@@ -422,6 +426,8 @@
       booking_price_label: "Estimated total",
       booking_price_currency: "AMD",
       booking_submit_pay: "Pay",
+      booking_msg_weekend_min_nights:
+        "Weekend stays require at least %d nights.",
       booking_msg_payment_failed:
         "We could not open the payment page. Your request was saved — please contact us to complete the payment.",
       booking_submit_check: "Check availability",
@@ -2223,6 +2229,14 @@
             dict.booking_msg_no_price
               || "These dates don't have a published price yet. Please contact us to confirm pricing before booking."
           );
+          return;
+        }
+
+        // Weekend minimum stay comes from the matching Price period.
+        const weekendMinNights = latestAvailability ? Number(latestAvailability.weekend_min_nights || 0) : 0;
+        if (weekendMinNights > 0 && latestAvailability && latestAvailability.weekend_min_nights_met === false) {
+          const tpl = dict.booking_msg_weekend_min_nights || "Weekend stays require at least %d nights.";
+          alert(tpl.replace("%d", String(weekendMinNights)));
           return;
         }
 
