@@ -2787,7 +2787,8 @@ function dilijanvillas_render_price_period_metabox($post)
       <tr>
         <th scope="row"><label for="dv_price_period_rate"><?php esc_html_e('Nightly rate', 'dilijanvillas'); ?></label></th>
         <td>
-          <input id="dv_price_period_rate" type="number" min="0" step="0.01" name="dv_price_period_rate" value="<?php echo esc_attr($rate); ?>" class="small-text" />
+          <?php /* Wider than WordPress's .small-text (65px) — rates in AMD run to six digits. */ ?>
+          <input id="dv_price_period_rate" type="number" min="0" step="0.01" name="dv_price_period_rate" value="<?php echo esc_attr($rate); ?>" style="width:195px;" />
           <code style="margin-left:6px;"><?php echo esc_html($currency); ?></code>
           <p class="description"><?php esc_html_e('Charged as entered for every night inside the period.', 'dilijanvillas'); ?></p>
         </td>
