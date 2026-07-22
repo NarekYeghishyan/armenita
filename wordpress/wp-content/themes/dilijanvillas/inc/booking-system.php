@@ -2468,12 +2468,15 @@ function dilijanvillas_render_unavailable_details_metabox($post)
         </td>
       </tr>
       <tr>
-        <th scope="row"><label for="dv_unavailable_start"><?php esc_html_e('Start date', 'dilijanvillas'); ?></label></th>
-        <td><input id="dv_unavailable_start" type="date" name="dv_unavailable_start" value="<?php echo esc_attr($start); ?>" /></td>
+        <th scope="row"><label for="dv_unavailable_start"><?php esc_html_e('Start date', 'dilijanvillas'); ?> <span class="description">*</span></label></th>
+        <td><input id="dv_unavailable_start" type="date" name="dv_unavailable_start" value="<?php echo esc_attr($start); ?>" required /></td>
       </tr>
       <tr>
-        <th scope="row"><label for="dv_unavailable_end"><?php esc_html_e('End date', 'dilijanvillas'); ?></label></th>
-        <td><input id="dv_unavailable_end" type="date" name="dv_unavailable_end" value="<?php echo esc_attr($end); ?>" /></td>
+        <th scope="row"><label for="dv_unavailable_end"><?php esc_html_e('End date', 'dilijanvillas'); ?> <span class="description">*</span></label></th>
+        <td>
+          <input id="dv_unavailable_end" type="date" name="dv_unavailable_end" value="<?php echo esc_attr($end); ?>" required />
+          <p class="description"><?php esc_html_e('Both dates are required. Without them the period blocks nothing, so it will be kept as a draft.', 'dilijanvillas'); ?></p>
+        </td>
       </tr>
       <tr>
         <th scope="row"><label for="dv_unavailable_note"><?php esc_html_e('Internal note', 'dilijanvillas'); ?></label></th>
@@ -2650,6 +2653,14 @@ function dilijanvillas_save_unavailable_metabox($post_id)
         update_post_meta($post_id, '_dv_unavailable_end', $end);
     }
 
+    dilijanvillas_guard_period_dates(
+        $post_id,
+        $start,
+        $end,
+        'save_post_dv_unavailable',
+        'dilijanvillas_save_unavailable_metabox'
+    );
+
     $post = get_post($post_id);
     if ($post && (trim((string) $post->post_title) === '' || strtolower(trim((string) $post->post_title)) === 'auto draft')) {
         if ($all_accommodations) {
@@ -2680,6 +2691,144 @@ function dilijanvillas_save_unavailable_metabox($post_id)
     }
 }
 add_action('save_post_dv_unavailable', 'dilijanvillas_save_unavailable_metabox');
+
+/**
+ * Whether a period has a usable date range.
+ *
+ * @param string $start Start date (Y-m-d).
+ * @param string $end   End date (Y-m-d).
+ * @return bool
+ */
+function dilijanvillas_period_dates_are_valid($start, $end)
+{
+    return dilijanvillas_is_valid_booking_date($start)
+        && dilijanvillas_is_valid_booking_date($end)
+        && $end >= $start;
+}
+
+/**
+ * Keep a period without a usable date range out of publish.
+ *
+ * Such an entry blocks no dates and prices no nights, so publishing it just
+ * creates an item that silently does nothing. It is pushed back to draft and
+ * the reason is stored for an admin notice.
+ *
+ * @param int    $post_id       Period post ID.
+ * @param string $start         Submitted start date.
+ * @param string $end           Submitted end date.
+ * @param string $save_hook     Hook to detach while updating, avoiding recursion.
+ * @param string $save_callback Callback registered on that hook.
+ * @return bool True when the dates are usable.
+ */
+function dilijanvillas_guard_period_dates($post_id, $start, $end, $save_hook, $save_callback)
+{
+    if (dilijanvillas_period_dates_are_valid($start, $end)) {
+        delete_post_meta($post_id, '_dv_period_date_error');
+
+        return true;
+    }
+
+    $message = (dilijanvillas_is_valid_booking_date($start) && dilijanvillas_is_valid_booking_date($end))
+        ? __('End date cannot be earlier than start date — saved as draft.', 'dilijanvillas')
+        : __('Start date and end date are both required — saved as draft.', 'dilijanvillas');
+
+    update_post_meta($post_id, '_dv_period_date_error', $message);
+
+    $post = get_post($post_id);
+    if ($post && $post->post_status === 'publish') {
+        remove_action($save_hook, $save_callback);
+        wp_update_post(
+            array(
+                'ID' => $post_id,
+                'post_status' => 'draft',
+            )
+        );
+        add_action($save_hook, $save_callback);
+    }
+
+    return false;
+}
+
+/**
+ * Show why a period was forced back to draft.
+ */
+function dilijanvillas_period_date_admin_notice()
+{
+    $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+    if (!$screen || !in_array($screen->post_type, array('dv_unavailable', 'dv_price_period'), true)) {
+        return;
+    }
+
+    $post_id = isset($_GET['post']) ? (int) $_GET['post'] : 0;
+    if ($post_id <= 0) {
+        return;
+    }
+
+    $message = (string) get_post_meta($post_id, '_dv_period_date_error', true);
+    if ($message === '') {
+        return;
+    }
+
+    printf('<div class="notice notice-error"><p>%s</p></div>', esc_html($message));
+}
+add_action('admin_notices', 'dilijanvillas_period_date_admin_notice');
+
+/**
+ * Status column for the Unavailable periods list table.
+ *
+ * @param array<string,string> $columns Existing columns.
+ * @return array<string,string>
+ */
+function dilijanvillas_unavailable_columns($columns)
+{
+    $reordered = array();
+    foreach ($columns as $key => $label) {
+        $reordered[$key] = $label;
+        if ($key === 'title') {
+            $reordered['dv_status'] = __('Status', 'dilijanvillas');
+        }
+    }
+
+    if (!isset($reordered['dv_status'])) {
+        $reordered['dv_status'] = __('Status', 'dilijanvillas');
+    }
+
+    return $reordered;
+}
+add_filter('manage_dv_unavailable_posts_columns', 'dilijanvillas_unavailable_columns');
+
+/**
+ * Render the Status column for Unavailable periods.
+ *
+ * @param string $column  Column key.
+ * @param int    $post_id Row post ID.
+ */
+function dilijanvillas_unavailable_column_content($column, $post_id)
+{
+    if ($column !== 'dv_status') {
+        return;
+    }
+
+    $status = (string) get_post_meta($post_id, '_dv_unavailable_status', true);
+    if ($status === '') {
+        $status = 'active';
+    }
+
+    if ($status === 'active') {
+        printf(
+            '<span style="color:#1a7f37;font-weight:600;">&#9679; %s</span>',
+            esc_html__('Active', 'dilijanvillas')
+        );
+
+        return;
+    }
+
+    printf(
+        '<span style="color:#8c8f94;">&#9675; %s</span>',
+        esc_html__('Inactive', 'dilijanvillas')
+    );
+}
+add_action('manage_dv_unavailable_posts_custom_column', 'dilijanvillas_unavailable_column_content', 10, 2);
 
 /**
  * Render dv_price_period details metabox.
@@ -2774,14 +2923,14 @@ function dilijanvillas_render_price_period_metabox($post)
         </td>
       </tr>
       <tr>
-        <th scope="row"><label for="dv_price_period_start"><?php esc_html_e('Start date', 'dilijanvillas'); ?></label></th>
-        <td><input id="dv_price_period_start" type="date" name="dv_price_period_start" value="<?php echo esc_attr($start); ?>" /></td>
+        <th scope="row"><label for="dv_price_period_start"><?php esc_html_e('Start date', 'dilijanvillas'); ?> <span class="description">*</span></label></th>
+        <td><input id="dv_price_period_start" type="date" name="dv_price_period_start" value="<?php echo esc_attr($start); ?>" required /></td>
       </tr>
       <tr>
-        <th scope="row"><label for="dv_price_period_end"><?php esc_html_e('End date', 'dilijanvillas'); ?></label></th>
+        <th scope="row"><label for="dv_price_period_end"><?php esc_html_e('End date', 'dilijanvillas'); ?> <span class="description">*</span></label></th>
         <td>
-          <input id="dv_price_period_end" type="date" name="dv_price_period_end" value="<?php echo esc_attr($end); ?>" />
-          <p class="description"><?php esc_html_e('Both start and end dates are inclusive. A booking is priced only when its check-in AND check-out dates both fall inside this range.', 'dilijanvillas'); ?></p>
+          <input id="dv_price_period_end" type="date" name="dv_price_period_end" value="<?php echo esc_attr($end); ?>" required />
+          <p class="description"><?php esc_html_e('Both dates are required and inclusive. A booking is priced only when its check-in AND check-out dates both fall inside this range.', 'dilijanvillas'); ?></p>
         </td>
       </tr>
       <tr>
@@ -2872,6 +3021,14 @@ function dilijanvillas_save_price_period_metabox($post_id)
     update_post_meta($post_id, '_dv_price_status', $status);
     update_post_meta($post_id, '_dv_price_rate', $rate);
     update_post_meta($post_id, '_dv_price_weekend_min_nights', $weekend_min_nights);
+
+    dilijanvillas_guard_period_dates(
+        $post_id,
+        $start,
+        $end,
+        'save_post_dv_price_period',
+        'dilijanvillas_save_price_period_metabox'
+    );
     update_post_meta($post_id, '_dv_price_note', $note);
 
     if (dilijanvillas_is_valid_booking_date($start)) {
