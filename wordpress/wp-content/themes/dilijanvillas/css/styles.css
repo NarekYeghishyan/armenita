@@ -2349,6 +2349,10 @@ body.site-access-locked {
   min-height: 2.85rem;
   font-size: 0.93rem;
   box-sizing: border-box;
+  /* The dropdown a select opens is drawn by the OS, not by this stylesheet. Without
+     a dark color-scheme it comes up light, and the highlighted row washes out to
+     white-on-white. Same reason the date inputs below declare it. */
+  color-scheme: dark;
   transition: border-color 0.24s ease, box-shadow 0.24s ease, background-color 0.24s ease;
 }
 
@@ -2438,10 +2442,14 @@ body.site-access-locked {
   gap: 0;
   border-radius: 0.72rem;
   border: 1px solid rgba(255, 255, 255, 0.16);
-  background: var(--booking-surface);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 60%), var(--booking-surface);
   overflow: hidden;
   min-height: 2.85rem;
-  transition: border-color 0.24s ease, box-shadow 0.24s ease;
+  transition: border-color 0.24s ease, box-shadow 0.24s ease, background-color 0.24s ease;
+}
+
+.booking-selector__phone:hover {
+  border-color: rgba(225, 197, 160, 0.36);
 }
 
 .booking-selector__phone:focus-within {
@@ -2449,29 +2457,52 @@ body.site-access-locked {
   box-shadow: 0 0 0 3px rgba(208, 166, 108, 0.2);
 }
 
-.booking-selector__phone-cc {
+/* Selector doubled up so it outranks the generic `.booking-selector__field
+   select` rule above; otherwise that rule's border and background win on
+   specificity and the chip loses its tint and caret. The phone input below
+   is doubled for the same reason. */
+.booking-selector__phone .booking-selector__phone-cc {
   appearance: none;
   -webkit-appearance: none;
   border: none;
-  background: rgba(255, 255, 255, 0.04);
+  border-right: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 0;
+  background-color: rgba(208, 166, 108, 0.08);
   color: var(--text);
-  padding: 0.55rem 1.6rem 0.55rem 0.7rem;
+  padding: 0.55rem 1.95rem 0.55rem 0.9rem;
   font: inherit;
   font-size: 0.86rem;
   font-weight: 600;
   letter-spacing: 0.02em;
   cursor: pointer;
+  color-scheme: dark;
   min-width: 6.6rem;
-  border-right: 1px solid rgba(255, 255, 255, 0.1);
-  background-image: linear-gradient(45deg, transparent 50%, rgba(234, 224, 210, 0.72) 50%), linear-gradient(135deg, rgba(234, 224, 210, 0.72) 50%, transparent 50%);
-  background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
-  background-size: 5px 5px, 5px 5px;
+  /* A select sizes itself to its widest option, and the country list runs to
+     entries like "+1670 Northern Mariana Islands". Cap it so the field cannot
+     push the phone input out of the row; the dial code leads each label, so
+     what gets clipped is the country name, not the code being chosen. */
+  max-width: 9.5rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none'%3E%3Cpath d='M1.5 1.5 6 6l4.5-4.5' stroke='%23d8bd93' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: right 0.72rem center;
+  background-size: 0.66rem auto;
   background-repeat: no-repeat;
+  transition: background-color 0.2s ease, border-color 0.24s ease;
 }
 
-.booking-selector__phone-cc:focus {
+.booking-selector__phone .booking-selector__phone-cc:hover {
+  background-color: rgba(208, 166, 108, 0.14);
+}
+
+.booking-selector__phone .booking-selector__phone-cc:focus {
   outline: none;
-  background-color: rgba(208, 166, 108, 0.12);
+  background-color: rgba(208, 166, 108, 0.18);
+}
+
+.booking-selector__phone:focus-within .booking-selector__phone-cc {
+  border-right-color: rgba(208, 166, 108, 0.32);
 }
 
 .booking-selector__phone-cc option {
@@ -2486,21 +2517,58 @@ body.site-access-locked {
   color: #1a0f08;
 }
 
-.booking-selector__phone-input.booking-selector__phone-input,
-.booking-selector__phone .booking-selector__phone-input {
+/* This is the only select in the form with <optgroup>. Unstyled, the group
+   headers keep the browser default — a light bar with italic text — and the
+   options nested under them inherit it, which is what made the selected
+   country unreadable. */
+.booking-selector__phone-cc optgroup {
+  background-color: #14100b;
+  color: rgba(244, 236, 224, 0.6);
+  font-style: normal;
+  font-weight: 700;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+}
+
+.booking-selector__phone-cc optgroup option {
+  background-color: #1a120c;
+  color: #f4ece0;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.booking-selector__phone-cc optgroup option:checked,
+.booking-selector__phone-cc optgroup option:hover {
+  background-color: #c69558;
+  color: #1a0f08;
+}
+
+/* Three classes so this outranks `.booking-selector__field input[type="tel"]`
+   above — that rule's `[type="tel"]` attribute selector gives it more weight
+   than a plain two-class selector, which is why the input kept its own border,
+   radius and background inside the chip until now. */
+.booking-selector__phone .booking-selector__phone-input.booking-selector__phone-input {
   flex: 1 1 auto;
+  min-width: 0;
   border: none;
   background: transparent;
-  padding: 0.72rem 0.8rem;
+  padding: 0.72rem 0.9rem;
   min-height: 0;
   border-radius: 0;
   box-shadow: none;
+  letter-spacing: 0.03em;
 }
 
-.booking-selector__phone .booking-selector__phone-input:focus {
+.booking-selector__phone .booking-selector__phone-input.booking-selector__phone-input:focus {
   outline: none;
   box-shadow: none;
   border: none;
+  background: transparent;
+}
+
+.booking-selector__phone .booking-selector__phone-input::placeholder {
+  color: rgba(234, 224, 210, 0.5);
+  letter-spacing: 0.06em;
 }
 
 .booking-selector__availability {
@@ -2568,6 +2636,45 @@ body.site-access-locked {
 
 .booking-selector__submit:hover {
   background: linear-gradient(135deg, rgba(204, 157, 93, 0.98) 0%, rgba(171, 126, 72, 1) 100%);
+}
+
+/* Held down from the click until PayLink takes over the tab: booking twice is
+   two bookings and two payment links. The label keeps its place in the DOM so
+   translations survive — it is only made invisible under the spinner. */
+.booking-selector__submit[disabled] {
+  cursor: progress;
+  opacity: 0.9;
+}
+
+.booking-selector__submit.is-loading {
+  position: relative;
+  color: transparent;
+  pointer-events: none;
+}
+
+.booking-selector__submit.is-loading::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin: -0.575rem 0 0 -0.575rem;
+  border: 2px solid rgba(32, 20, 12, 0.3);
+  border-top-color: #20140c;
+  border-radius: 50%;
+  animation: booking-submit-spin 0.7s linear infinite;
+}
+
+@keyframes booking-submit-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .booking-selector__submit.is-loading::after {
+    animation-duration: 2.4s;
+  }
 }
 
 /* Premium themed flatpickr calendar */

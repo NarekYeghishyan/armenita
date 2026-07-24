@@ -21,18 +21,15 @@ function dilijanvillas_get_booking_settings()
     $defaults = array(
         'currency' => 'AMD',
         // Nightly prices live in Price period entries, not in these settings.
-        'season_start' => '',
-        'season_end' => '',
-        'season_rate' => 0,
         'paylink_integration_mode' => 'armenia_integration',
         'paylink_test_mode' => false,
-        'paylink_checkout_language' => '',
         'paylink_api_url' => '',
         'paylink_api_token' => '',
         'paylink_merchant_id' => '',
         'paylink_callback_url' => '',
         'paylink_am_api_base' => 'https://integration.apitest.paylink.am',
         'paylink_am_request_type' => 'Booking',
+        'payment_hold_minutes' => 30,
     );
 
     $settings = get_option(DILIJANVILLAS_BOOKING_SETTINGS_KEY, array());
@@ -163,12 +160,211 @@ add_action('init', 'dilijanvillas_register_price_period_cpt');
 /**
  * Booking statuses that block a date range.
  *
+ * Dates are only taken off the calendar once the money is in: "paid" is set by
+ * the PayLink sync, "confirmed" is the admin vouching for a booking settled some
+ * other way (transfer, cash). A guest who opens the payment page and walks away
+ * leaves the booking on "payment_pending", and those nights stay on sale.
+ *
  * @return array<int,string>
  */
 function dilijanvillas_get_blocking_booking_statuses()
 {
-    return array('pending', 'confirmed', 'paid', 'payment_pending');
+    return array('confirmed', 'paid');
 }
+
+/**
+ * How long a booking holds its dates while the guest is on the payment page.
+ *
+ * Long enough to type card details and pass 3-D Secure, short enough that an
+ * abandoned checkout does not keep the nights off sale for the rest of the day.
+ * Set on the Booking Settings screen.
+ *
+ * @return int Minutes; zero or less disables the hold entirely.
+ */
+function dilijanvillas_get_payment_hold_minutes()
+{
+    $settings = dilijanvillas_get_booking_settings();
+    $minutes = isset($settings['payment_hold_minutes']) ? (int) $settings['payment_hold_minutes'] : 30;
+
+    return (int) apply_filters('dilijanvillas_payment_hold_minutes', $minutes);
+}
+
+/**
+ * Head start the payment link gets over the date hold.
+ *
+ * The link has to be refused before the nights are back on sale, never after:
+ * a payment authorised in that gap would land on dates another guest may already
+ * have bought. Clock drift between this server and PayLink, plus the seconds a
+ * charge takes to go through, are what this margin absorbs.
+ *
+ * @return int Minutes subtracted from the hold when setting expirationDate.
+ */
+function dilijanvillas_get_payment_link_margin_minutes()
+{
+    return max(0, (int) apply_filters('dilijanvillas_payment_link_margin_minutes', 2));
+}
+
+/**
+ * How long the PayLink page itself stays payable.
+ *
+ * @return int Minutes; zero means no deadline is sent to PayLink.
+ */
+function dilijanvillas_get_payment_link_minutes()
+{
+    $hold = dilijanvillas_get_payment_hold_minutes();
+    if ($hold <= 0) {
+        return 0;
+    }
+
+    return max(1, $hold - dilijanvillas_get_payment_link_margin_minutes());
+}
+
+/**
+ * Is this booking still inside its payment window?
+ *
+ * Only meaningful for "payment_pending" — the state a booking is in between
+ * being handed a PayLink URL and the payment being confirmed.
+ *
+ * @param int $booking_id Booking post ID.
+ * @return bool True while the dates are held for this guest.
+ */
+function dilijanvillas_booking_payment_hold_is_active($booking_id)
+{
+    $minutes = dilijanvillas_get_payment_hold_minutes();
+    if ($minutes <= 0) {
+        return false;
+    }
+
+    $started = trim((string) get_post_meta((int) $booking_id, '_dv_payment_hold_started_at', true));
+    $started_ts = $started !== '' ? strtotime($started) : false;
+
+    // Bookings made before the hold existed fall back to their creation time,
+    // which for those is the same moment the payment link was issued.
+    if (!$started_ts) {
+        $started_ts = (int) get_post_time('U', true, (int) $booking_id);
+    }
+
+    if ($started_ts <= 0) {
+        return false;
+    }
+
+    return (time() - $started_ts) < ($minutes * MINUTE_IN_SECONDS);
+}
+
+/**
+ * Cancel bookings whose payment window has closed.
+ *
+ * A guest handed a PayLink URL sits on "payment_pending" until they pay. The
+ * dates come back on sale on their own once the hold lapses (see
+ * dilijanvillas_booking_payment_hold_is_active), but the booking itself used to
+ * stay "payment_pending" indefinitely, which reads in the admin list as a live
+ * checkout that never resolves. Once the window is shut the checkout is dead:
+ * mark it "cancelled" so the Bookings list tells the truth and the Status filter
+ * counts it correctly.
+ *
+ * One last reconcile guards the one case where it would be wrong to cancel: the
+ * guest paid but never came back to the site to fire the backUrl sync. If the
+ * money is in, the booking becomes "paid" here instead of being cancelled.
+ *
+ * @return int Number of bookings cancelled.
+ */
+function dilijanvillas_cancel_expired_payment_holds()
+{
+    // With the hold disabled nothing is ever "expired" — leave statuses alone.
+    if (dilijanvillas_get_payment_hold_minutes() <= 0) {
+        return 0;
+    }
+
+    $booking_ids = get_posts(
+        array(
+            'post_type' => 'dv_booking',
+            'post_status' => 'publish',
+            'posts_per_page' => 50,
+            'fields' => 'ids',
+            'no_found_rows' => true,
+            'meta_query' => array(
+                array('key' => '_dv_status', 'value' => 'payment_pending'),
+            ),
+        )
+    );
+
+    $cancelled = 0;
+    foreach ($booking_ids as $booking_id) {
+        $booking_id = (int) $booking_id;
+
+        // Still inside the window — the guest may be finishing payment now.
+        if (dilijanvillas_booking_payment_hold_is_active($booking_id)) {
+            continue;
+        }
+
+        // Last chance to notice a payment that landed without the guest
+        // returning to the site. If it settles, it is now "paid", not expired.
+        if (dilijanvillas_paylink_am_sync_booking_status($booking_id, '')) {
+            continue;
+        }
+
+        // The sync may have flipped the status on another path; re-read before
+        // overwriting so a booking settled mid-sweep is never clobbered.
+        if ((string) get_post_meta($booking_id, '_dv_status', true) !== 'payment_pending') {
+            continue;
+        }
+
+        update_post_meta($booking_id, '_dv_status', 'cancelled');
+        update_post_meta($booking_id, '_dv_cancelled_at', gmdate('c'));
+        update_post_meta($booking_id, '_dv_cancel_reason', 'payment_hold_expired');
+        $cancelled++;
+    }
+
+    return $cancelled;
+}
+add_action('dilijanvillas_expire_payment_holds', 'dilijanvillas_cancel_expired_payment_holds');
+
+/**
+ * Add the recurring interval used to sweep expired checkouts.
+ *
+ * WordPress ships nothing more frequent than hourly, but the hold is counted in
+ * minutes; a stalled booking would otherwise linger up to an hour before its
+ * status caught up. Five minutes keeps the list current without waking WP-Cron
+ * every minute.
+ *
+ * @param array<string,array<string,mixed>> $schedules Existing cron intervals.
+ * @return array<string,array<string,mixed>>
+ */
+function dilijanvillas_register_cron_schedules($schedules)
+{
+    if (!isset($schedules['dilijanvillas_five_minutes'])) {
+        $schedules['dilijanvillas_five_minutes'] = array(
+            'interval' => 5 * MINUTE_IN_SECONDS,
+            'display' => __('Every 5 minutes (Dilijan Villas)', 'dilijanvillas'),
+        );
+    }
+
+    return $schedules;
+}
+add_filter('cron_schedules', 'dilijanvillas_register_cron_schedules');
+
+/**
+ * Keep the payment-hold sweep on the cron calendar.
+ */
+function dilijanvillas_schedule_payment_hold_sweep()
+{
+    if (!wp_next_scheduled('dilijanvillas_expire_payment_holds')) {
+        wp_schedule_event(time(), 'dilijanvillas_five_minutes', 'dilijanvillas_expire_payment_holds');
+    }
+}
+add_action('init', 'dilijanvillas_schedule_payment_hold_sweep');
+
+/**
+ * Drop the sweep from cron when this theme is deactivated.
+ */
+function dilijanvillas_unschedule_payment_hold_sweep()
+{
+    $timestamp = wp_next_scheduled('dilijanvillas_expire_payment_holds');
+    if ($timestamp) {
+        wp_unschedule_event($timestamp, 'dilijanvillas_expire_payment_holds');
+    }
+}
+add_action('switch_theme', 'dilijanvillas_unschedule_payment_hold_sweep');
 
 /**
  * Register booking settings.
@@ -233,20 +429,31 @@ function dilijanvillas_sanitize_booking_settings($input)
     }
     $paylink_am_request_type_final = $paylink_am_request_type_raw !== '' ? $paylink_am_request_type_raw : 'Booking';
 
+    // Below the safety margin the payment link would be dead on arrival, so the
+    // shortest hold worth offering is a few minutes. Zero is kept as the explicit
+    // "no hold, no deadline" escape hatch.
+    $hold_minutes_raw = isset($input['payment_hold_minutes']) ? (int) $input['payment_hold_minutes'] : 30;
+    if ($hold_minutes_raw < 0) {
+        $hold_minutes_raw = 0;
+    }
+    if ($hold_minutes_raw > 0) {
+        $hold_minutes_raw = max(
+            dilijanvillas_get_payment_link_margin_minutes() + 1,
+            min(1440, $hold_minutes_raw)
+        );
+    }
+
     return array(
         'currency' => !empty($input['currency']) ? sanitize_text_field((string) $input['currency']) : 'AMD',
-        'season_start' => !empty($input['season_start']) ? sanitize_text_field((string) $input['season_start']) : '',
-        'season_end' => !empty($input['season_end']) ? sanitize_text_field((string) $input['season_end']) : '',
-        'season_rate' => isset($input['season_rate']) ? max(0, (float) $input['season_rate']) : 0,
         'paylink_integration_mode' => $hosted_mode,
         'paylink_test_mode' => !empty($input['paylink_test_mode']),
-        'paylink_checkout_language' => !empty($input['paylink_checkout_language']) ? preg_replace('/[^a-z_-]/', '', strtolower((string) $input['paylink_checkout_language'])) : '',
         'paylink_api_url' => !empty($input['paylink_api_url']) ? esc_url_raw((string) $input['paylink_api_url']) : '',
         'paylink_api_token' => $new_secret,
         'paylink_merchant_id' => !empty($input['paylink_merchant_id']) ? sanitize_text_field((string) $input['paylink_merchant_id']) : '',
         'paylink_callback_url' => !empty($input['paylink_callback_url']) ? esc_url_raw((string) $input['paylink_callback_url']) : '',
         'paylink_am_api_base' => $paylink_am_base,
         'paylink_am_request_type' => $paylink_am_request_type_final,
+        'payment_hold_minutes' => $hold_minutes_raw,
     );
 }
 
@@ -279,20 +486,33 @@ function dilijanvillas_render_booking_settings_page()
             </td>
           </tr>
           <tr>
-            <th scope="row"><?php esc_html_e('Seasonal override', 'dilijanvillas'); ?></th>
+            <th scope="row"><label for="payment_hold_minutes"><?php esc_html_e('Hold dates during payment', 'dilijanvillas'); ?></label></th>
             <td>
-              <label>
-                <?php esc_html_e('Start', 'dilijanvillas'); ?>
-                <input type="date" name="<?php echo esc_attr(DILIJANVILLAS_BOOKING_SETTINGS_KEY); ?>[season_start]" value="<?php echo esc_attr((string) $settings['season_start']); ?>" />
-              </label>
-              <label style="margin-left:12px;">
-                <?php esc_html_e('End', 'dilijanvillas'); ?>
-                <input type="date" name="<?php echo esc_attr(DILIJANVILLAS_BOOKING_SETTINGS_KEY); ?>[season_end]" value="<?php echo esc_attr((string) $settings['season_end']); ?>" />
-              </label>
-              <label style="margin-left:12px;">
-                <?php esc_html_e('Nightly rate', 'dilijanvillas'); ?>
-                <input type="number" min="0" step="0.01" name="<?php echo esc_attr(DILIJANVILLAS_BOOKING_SETTINGS_KEY); ?>[season_rate]" value="<?php echo esc_attr((string) $settings['season_rate']); ?>" />
-              </label>
+              <?php
+              $hold_minutes_value = dilijanvillas_get_payment_hold_minutes();
+              $link_minutes_value = dilijanvillas_get_payment_link_minutes();
+              $margin_minutes_value = dilijanvillas_get_payment_link_margin_minutes();
+              ?>
+              <input id="payment_hold_minutes" type="number" min="0" max="1440" step="1" name="<?php echo esc_attr(DILIJANVILLAS_BOOKING_SETTINGS_KEY); ?>[payment_hold_minutes]" value="<?php echo esc_attr((string) $hold_minutes_value); ?>" class="small-text" />
+              <span class="description"><?php esc_html_e('minutes', 'dilijanvillas'); ?></span>
+              <p class="description">
+                <?php esc_html_e('While a guest is on the payment page their dates disappear from everyone else\'s calendar. When this runs out the nights go back on sale by themselves.', 'dilijanvillas'); ?>
+              </p>
+              <p class="description">
+                <?php
+                if ($hold_minutes_value > 0) {
+                    printf(
+                        /* translators: 1: payment link lifetime, 2: safety margin, 3: hold length — all in minutes */
+                        esc_html__('The PayLink page itself stops accepting payment after %1$d min — %2$d min before the hold ends, so a payment can never go through on nights that are already back on sale. Hold %3$d min → link %1$d min.', 'dilijanvillas'),
+                        (int) $link_minutes_value,
+                        (int) $margin_minutes_value,
+                        (int) $hold_minutes_value
+                    );
+                } else {
+                    esc_html_e('Set to 0: dates are never held and the payment link has no deadline. Two guests can then pay for the same nights.', 'dilijanvillas');
+                }
+                ?>
+              </p>
             </td>
           </tr>
           <tr>
@@ -314,13 +534,6 @@ function dilijanvillas_render_booking_settings_page()
             <th scope="row"><?php esc_html_e('Paylink sandbox / test', 'dilijanvillas'); ?></th>
             <td>
               <label><input type="checkbox" name="<?php echo esc_attr(DILIJANVILLAS_BOOKING_SETTINGS_KEY); ?>[paylink_test_mode]" value="1" <?php checked(!empty($settings['paylink_test_mode'])); ?> /> <?php esc_html_e('Test mode (hosted KZ checkout only: sends checkout.test = true)', 'dilijanvillas'); ?></label>
-            </td>
-          </tr>
-          <tr>
-            <th scope="row"><label for="paylink_checkout_language"><?php esc_html_e('Checkout language', 'dilijanvillas'); ?></label></th>
-            <td>
-              <input id="paylink_checkout_language" type="text" name="<?php echo esc_attr(DILIJANVILLAS_BOOKING_SETTINGS_KEY); ?>[paylink_checkout_language]" value="<?php echo esc_attr((string) $settings['paylink_checkout_language']); ?>" class="regular-text" placeholder="en" maxlength="16" />
-              <p class="description"><?php esc_html_e('Optional ISO-ish code for the hosted payment page (e.g. en, ru, hy). Leave empty to use site / Polylang language when possible.', 'dilijanvillas'); ?></p>
             </td>
           </tr>
           <tr>
@@ -617,8 +830,16 @@ function dilijanvillas_get_blocked_ranges($accommodation_id)
 
     foreach ($bookings as $booking_id) {
         $status = (string) get_post_meta((int) $booking_id, '_dv_status', true);
+        $is_hold = false;
+
         if (!in_array($status, $booking_statuses, true)) {
-            continue;
+            // Not paid yet — the only reason to keep these nights is a guest who
+            // is on the payment page right now. That hold expires on its own.
+            if ($status !== 'payment_pending' || !dilijanvillas_booking_payment_hold_is_active((int) $booking_id)) {
+                continue;
+            }
+
+            $is_hold = true;
         }
 
         $existing_start = (string) get_post_meta((int) $booking_id, '_dv_checkin', true);
@@ -630,7 +851,7 @@ function dilijanvillas_get_blocked_ranges($accommodation_id)
         $blocked[] = array(
             'start' => $existing_start,
             'end' => $existing_end,
-            'source' => 'booking',
+            'source' => $is_hold ? 'payment_hold' : 'booking',
             'sourceId' => (int) $booking_id,
             'status' => $status,
         );
@@ -763,10 +984,6 @@ function dilijanvillas_calculate_booking_price($start_date, $end_date, $accommod
     // zero and leaves has_admin_price false, which blocks the booking.
     $base_rate = 0.0;
 
-    $season_start = (string) $settings['season_start'];
-    $season_end = (string) $settings['season_end'];
-    $season_rate = max(0, (float) $settings['season_rate']);
-
     $start = strtotime($start_date . ' 12:00:00');
     $end = strtotime($end_date . ' 12:00:00');
     if (!$start || !$end || $end < $start) {
@@ -789,16 +1006,6 @@ function dilijanvillas_calculate_booking_price($start_date, $end_date, $accommod
         $date_key = gmdate('Y-m-d', $night_ts);
 
         $rate = $base_rate;
-
-        if (
-            $season_rate > 0
-            && dilijanvillas_is_valid_booking_date($season_start)
-            && dilijanvillas_is_valid_booking_date($season_end)
-            && $date_key >= $season_start
-            && $date_key <= $season_end
-        ) {
-            $rate = $season_rate;
-        }
 
         $custom_rate = null;
         foreach ($price_periods as $period) {
@@ -1020,38 +1227,55 @@ function dilijanvillas_paylink_amount_to_minor_units($amount_major, $currency)
 }
 
 /**
- * Detect checkout language preference for hosted PayLink.
+ * Reduce a language slug, locale or HTML lang attribute to a code PayLink knows.
  *
- * @param array<string,mixed> $settings Booking settings row.
- * @return string Two-letter-ish code PayLink understands.
+ * @param string $language E.g. "ru", "ru_RU", "en-US".
+ * @return string 'hy', 'ru', 'en', or '' when the site language is none of these.
  */
-function dilijanvillas_paylink_resolve_checkout_language($settings)
+function dilijanvillas_normalize_checkout_language($language)
 {
-    if (!empty($settings['paylink_checkout_language'])) {
-        return (string) $settings['paylink_checkout_language'];
+    $language = strtolower(trim((string) $language));
+    if ($language === '') {
+        return '';
     }
 
-    if (function_exists('pll_current_language')) {
-        $slug = (string) pll_current_language('slug');
-        $map = array(
-            'hy' => 'hy',
-            'ru' => 'ru',
-            'en' => 'en',
-        );
-        if ($slug !== '' && isset($map[$slug])) {
-            return $map[$slug];
+    // Keep the primary subtag only: ru_RU, en-US and ru all become the same code.
+    $language = preg_replace('/[^a-z].*$/', '', $language);
+
+    return in_array($language, array('hy', 'ru', 'en'), true) ? $language : '';
+}
+
+/**
+ * Checkout language for the hosted PayLink page — the language the guest was
+ * browsing the site in.
+ *
+ * The booking carries that language itself: the payment link is built inside an
+ * admin-ajax request (and can be rebuilt later from wp-admin), where
+ * pll_current_language() no longer describes the visitor's page.
+ *
+ * @param int $booking_id Booking CPT ID, 0 when unknown.
+ * @return string Two-letter-ish code PayLink understands.
+ */
+function dilijanvillas_paylink_resolve_checkout_language($booking_id = 0)
+{
+    $booking_id = (int) $booking_id;
+    if ($booking_id > 0) {
+        $stored = dilijanvillas_normalize_checkout_language((string) get_post_meta($booking_id, '_dv_lang', true));
+        if ($stored !== '') {
+            return $stored;
         }
     }
 
-    $locale = strtolower((string) get_locale());
-    if (strpos($locale, 'hy') === 0) {
-        return 'hy';
-    }
-    if (strpos($locale, 'ru') === 0) {
-        return 'ru';
+    if (function_exists('pll_current_language')) {
+        $current = dilijanvillas_normalize_checkout_language((string) pll_current_language('slug'));
+        if ($current !== '') {
+            return $current;
+        }
     }
 
-    return 'en';
+    $locale = dilijanvillas_normalize_checkout_language((string) get_locale());
+
+    return $locale !== '' ? $locale : 'en';
 }
 
 /**
@@ -1291,6 +1515,30 @@ function dilijanvillas_paylink_am_get_bearer_token($settings, $force_refresh = f
 }
 
 /**
+ * Format an expiry instant the way this API talks about time.
+ *
+ * Every timestamp in the PayLink Integration API spec is UTC with a trailing Z
+ * (e.g. expirationDate "2024-03-01T00:00:00Z"), so the deadline is sent as an
+ * explicit UTC instant. That marker is the point: an earlier version sent the
+ * clock time on Yerevan local time with no zone suffix, and PayLink — comparing
+ * the value against its own UTC clock — read those digits as UTC and kept the
+ * link payable for the +4h Yerevan offset past the intended window. A Z-marked
+ * instant cannot be misread that way, which is what makes the hold-minus-margin
+ * deadline actually take effect.
+ *
+ * (Responses come back naive on Yerevan time — the token handler above corrects
+ * for that separately; how the API renders its output does not change how it
+ * parses the UTC value we send in.)
+ *
+ * @param int $timestamp Unix time the link should stop working.
+ * @return string ISO-8601 UTC with zone, e.g. 2026-07-24T14:30:00Z.
+ */
+function dilijanvillas_paylink_am_format_expiration($timestamp)
+{
+    return gmdate('Y-m-d\TH:i:s\Z', (int) $timestamp);
+}
+
+/**
  * Register a payment link via Armenian Integration API and return visitor redirect URL.
  *
  * Swagger: POST /api/request/register.
@@ -1341,20 +1589,49 @@ function dilijanvillas_paylink_am_register_payment_redirect($booking_id, $amount
     $guest_name_trim = trim((string) $customer_name);
     $request_info = $tracking . ($guest_name_trim !== '' ? ' — ' . $guest_name_trim : '');
 
+    // A booking link must be paid once, for exactly the calculated total. Without
+    // maxCount the PayLink page shows a quantity stepper (+/-) that multiplies the
+    // amount, so the guest could pay for several nights' totals at once; capping it
+    // at one payment pins the page to the single amount we registered. isFlexible
+    // false likewise blocks typing a different amount.
+    $guest_return_url = dilijanvillas_paylink_build_guest_return_base_url($settings, $booking_id);
+
     $register_body = array(
+        // Anonymous on purpose: the guest already gave name, phone and email in
+        // our own booking form, so making PayLink ask for them again just adds
+        // fields to its page. Reconciliation never reads those payer fields — it
+        // matches on the requestId UUID and the "DV-{id}" tracking string carried
+        // in requestInfo below — so dropping them off the PayLink page costs us
+        // nothing and leaves the guest with only the card entry to fill in.
         'allowAnonymous' => true,
         'amount' => round(max(0, (float) $amount_major), 2),
         'isActive' => true,
         'isFlexible' => false,
+        'maxCount' => 1,
         'requestType' => $request_type,
         'currency' => $currency,
-        'language' => dilijanvillas_paylink_resolve_checkout_language($settings),
-        'backUrl' => dilijanvillas_paylink_build_guest_return_base_url($settings, $booking_id),
+        'language' => dilijanvillas_paylink_resolve_checkout_language($booking_id),
+        'backUrl' => $guest_return_url,
+        // The Integration API carries a second redirect target that the payment
+        // page uses once the card is charged; with only backUrl set the guest can
+        // be left sitting on PayLink after paying. Same destination either way, so
+        // both land on ?dv_booking=&dv_payment_return=1 and trigger the sync below.
+        'paymentWebRedirectUrl' => $guest_return_url,
         'requestInfo' => $request_info,
     );
 
+    // Same clock as the date hold, minus a safety margin: the link must stop
+    // taking money slightly *before* the nights go back on sale, never after,
+    // or a late payment lands on dates somebody else has bought since.
+    $link_minutes = dilijanvillas_get_payment_link_minutes();
+    if ($link_minutes > 0) {
+        $register_body['expirationDate'] = dilijanvillas_paylink_am_format_expiration(
+            time() + ($link_minutes * MINUTE_IN_SECONDS)
+        );
+    }
+
     $register_url = $api_root . '/api/request/register';
-    $post_register = static function ($token) use ($register_url, $register_body) {
+    $post_register = static function ($token, $body) use ($register_url) {
         return wp_remote_post(
             $register_url,
             array(
@@ -1364,12 +1641,12 @@ function dilijanvillas_paylink_am_register_payment_redirect($booking_id, $amount
                     'Accept' => 'application/json',
                     'Authorization' => 'Bearer ' . $token,
                 ),
-                'body' => wp_json_encode($register_body),
+                'body' => wp_json_encode($body),
             )
         );
     };
 
-    $response = $post_register($jwt);
+    $response = $post_register($jwt, $register_body);
 
     // A cached token can still expire mid-flight; re-authorize once rather than
     // dropping the booking on the floor without a payment link.
@@ -1387,8 +1664,37 @@ function dilijanvillas_paylink_am_register_payment_redirect($booking_id, $amount
 
         $jwt_retry = dilijanvillas_paylink_am_get_bearer_token($settings, true);
         if ($jwt_retry !== '') {
-            $response = $post_register($jwt_retry);
+            $jwt = $jwt_retry;
+            $response = $post_register($jwt, $register_body);
         }
+    }
+
+    // paymentWebRedirectUrl is not in the partner PDF, and a stricter deployment
+    // could reject the payload over it or over the expirationDate format, so an
+    // otherwise-valid booking must not be lost to a fussy 400. A booking with no
+    // payment link at all is worse than one without a return redirect or a
+    // deadline, so drop both once before giving up. The date hold still expires
+    // locally either way.
+    $optional_fields = array('paymentWebRedirectUrl', 'expirationDate');
+    $has_optional = (bool) array_intersect($optional_fields, array_keys($register_body));
+
+    if (!is_wp_error($response) && (int) wp_remote_retrieve_response_code($response) === 400 && $has_optional) {
+        dilijanvillas_paylink_log(
+            'register',
+            'error',
+            array(
+                'endpoint' => $register_url,
+                'status' => 400,
+                'message' => __('Rejected with paymentWebRedirectUrl / expirationDate — retrying once without them.', 'dilijanvillas'),
+                'booking_id' => $booking_id,
+            )
+        );
+
+        foreach ($optional_fields as $optional_field) {
+            unset($register_body[$optional_field]);
+        }
+
+        $response = $post_register($jwt, $register_body);
     }
 
     if (is_wp_error($response) || (int) wp_remote_retrieve_response_code($response) < 200 || (int) wp_remote_retrieve_response_code($response) >= 300) {
@@ -1541,27 +1847,31 @@ function dilijanvillas_paylink_am_fetch_payment_by_order_id($settings, $order_id
 /**
  * After guest returns from PayLink Armenia, reconcile payment approval against API.
  *
- * @param int $booking_id CPT ID dv_booking.
- * @return void
+ * @param int    $booking_id CPT ID dv_booking.
+ * @param string $order_id   Payment id PayLink appended to the return URL, if any.
+ * @return bool True when PayLink confirms the booking total was paid.
  */
 function dilijanvillas_paylink_am_sync_booking_status($booking_id, $order_id = '')
 {
     $booking_id = (int) $booking_id;
     $post = get_post($booking_id);
     if (!$post || $post->post_type !== 'dv_booking') {
-        return;
+        return false;
     }
 
     $settings = dilijanvillas_get_booking_settings();
     if (($settings['paylink_integration_mode'] ?? '') !== 'armenia_integration') {
-        return;
+        return false;
     }
 
     $request_uuid = trim((string) get_post_meta($booking_id, '_dv_paylink_request_id', true));
     $order_id = trim((string) $order_id);
     if ($request_uuid === '' && $order_id === '') {
-        return;
+        return false;
     }
+
+    // Lets the admin tell "PayLink says not paid yet" apart from "never checked".
+    update_post_meta($booking_id, '_dv_paylink_last_check', gmdate('c'));
 
     $booking_total = (float) get_post_meta($booking_id, '_dv_total', true);
     $booking_currency = strtoupper(trim((string) get_post_meta($booking_id, '_dv_currency', true)));
@@ -1601,7 +1911,7 @@ function dilijanvillas_paylink_am_sync_booking_status($booking_id, $order_id = '
                 update_post_meta($booking_id, '_dv_paylink_paid_detected_at', gmdate('c'));
                 update_post_meta($booking_id, '_dv_paylink_order_id', isset($row['orderId']) ? (int) $row['orderId'] : 0);
 
-                return;
+                return true;
             }
         }
     }
@@ -1630,11 +1940,13 @@ function dilijanvillas_paylink_am_sync_booking_status($booking_id, $order_id = '
                     update_post_meta($booking_id, '_dv_status', 'paid');
                     update_post_meta($booking_id, '_dv_paylink_paid_detected_at', gmdate('c'));
 
-                    return;
+                    return true;
                 }
             }
         }
     }
+
+    return false;
 }
 
 /**
@@ -1668,6 +1980,77 @@ function dilijanvillas_paylink_am_template_maybe_sync_payment()
     dilijanvillas_paylink_am_sync_booking_status($booking_id, $order_id);
 }
 add_action('template_redirect', 'dilijanvillas_paylink_am_template_maybe_sync_payment');
+
+/**
+ * Tell the returning guest what happened, on the page they booked from.
+ *
+ * The sync above has already run on template_redirect, so the stored status is
+ * current by the time the footer renders. Deliberately says nothing beyond
+ * paid / not-yet — the booking id travels in a public URL.
+ *
+ * @return void
+ */
+function dilijanvillas_render_payment_return_notice()
+{
+    if (empty($_GET['dv_payment_return']) || empty($_GET['dv_booking'])) {
+        return;
+    }
+
+    $booking_id = (int) sanitize_text_field((string) wp_unslash($_GET['dv_booking']));
+    if ($booking_id <= 0) {
+        return;
+    }
+
+    $post = get_post($booking_id);
+    if (!$post || $post->post_type !== 'dv_booking') {
+        return;
+    }
+
+    $paid = (string) get_post_meta($booking_id, '_dv_status', true) === 'paid';
+    $lang = dilijanvillas_paylink_resolve_checkout_language($booking_id);
+
+    $strings = array(
+        'hy' => array(
+            'paid_title' => 'Վճարումն ընդունված է',
+            'paid_text' => 'Ձեր #%d ամրագրումը հաստատված է։ Շնորհակալություն։',
+            'wait_title' => 'Վճարումը մշակվում է',
+            'wait_text' => '#%d ամրագրման վճարման հաստատումը դեռ չի ստացվել։ Եթե գումարը դուրս է գրվել, մենք կհաստատենք ամրագրումը ձեռքով։',
+            'close' => 'Փակել',
+        ),
+        'ru' => array(
+            'paid_title' => 'Оплата получена',
+            'paid_text' => 'Бронь №%d подтверждена. Спасибо!',
+            'wait_title' => 'Оплата обрабатывается',
+            'wait_text' => 'Подтверждение оплаты по брони №%d пока не получено. Если деньги списаны, мы подтвердим бронь вручную.',
+            'close' => 'Закрыть',
+        ),
+        'en' => array(
+            'paid_title' => 'Payment received',
+            'paid_text' => 'Booking #%d is confirmed. Thank you!',
+            'wait_title' => 'Payment is being processed',
+            'wait_text' => 'We have not received confirmation for booking #%d yet. If you were charged, we will confirm the booking manually.',
+            'close' => 'Close',
+        ),
+    );
+
+    $dict = isset($strings[$lang]) ? $strings[$lang] : $strings['en'];
+    $title = $paid ? $dict['paid_title'] : $dict['wait_title'];
+    $text = sprintf($paid ? $dict['paid_text'] : $dict['wait_text'], $booking_id);
+    $accent = $paid ? '#1a7f37' : '#996800';
+
+    // Dismiss by dropping the markers from the URL — no script needed.
+    $dismiss_url = remove_query_arg(array('dv_booking', 'dv_payment_return', 'id'));
+    ?>
+    <div style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:9999;max-width:min(440px,calc(100vw - 32px));width:100%;box-sizing:border-box;display:flex;gap:12px;align-items:flex-start;padding:16px 18px;background:#fff;border-left:4px solid <?php echo esc_attr($accent); ?>;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.18);font-size:15px;line-height:1.45;color:#222;">
+      <div style="flex:1;">
+        <strong style="display:block;margin-bottom:4px;color:<?php echo esc_attr($accent); ?>;"><?php echo esc_html($title); ?></strong>
+        <span><?php echo esc_html($text); ?></span>
+      </div>
+      <a href="<?php echo esc_url($dismiss_url); ?>" aria-label="<?php echo esc_attr($dict['close']); ?>" style="flex:0 0 auto;color:#666;text-decoration:none;font-size:20px;line-height:1;padding:2px 4px;">&times;</a>
+    </div>
+    <?php
+}
+add_action('wp_footer', 'dilijanvillas_render_payment_return_notice');
 
 /**
  * Create hosted PayLink checkout session and return visitor redirect URL.
@@ -1734,7 +2117,7 @@ function dilijanvillas_build_paylink_hosted_checkout_redirect($booking_id, $amou
                 'cancel_url' => $return_url_base,
                 'decline_url' => $return_url_base,
                 'notification_url' => $notification_url,
-                'language' => dilijanvillas_paylink_resolve_checkout_language($settings),
+                'language' => dilijanvillas_paylink_resolve_checkout_language($booking_id),
             ),
             'order' => array(
                 'currency' => $currency,
@@ -2021,6 +2404,9 @@ function dilijanvillas_get_booking_frontend_config()
         'ajaxUrl' => admin_url('admin-ajax.php'),
         'nonce' => wp_create_nonce('dilijanvillas_booking_nonce'),
         'currency' => (string) $settings['currency'],
+        // Read here, while we are still rendering the visitor's page: the booking
+        // request itself goes to admin-ajax.php, which has no page language.
+        'lang' => dilijanvillas_paylink_resolve_checkout_language(),
         'accommodations' => dilijanvillas_get_booking_accommodations(),
     );
 }
@@ -2106,6 +2492,7 @@ function dilijanvillas_ajax_create_booking()
     $name = isset($_POST['name']) ? sanitize_text_field((string) $_POST['name']) : '';
     $phone = isset($_POST['phone']) ? sanitize_text_field((string) $_POST['phone']) : '';
     $email = isset($_POST['email']) ? sanitize_email((string) $_POST['email']) : '';
+    $lang = isset($_POST['lang']) ? dilijanvillas_normalize_checkout_language((string) $_POST['lang']) : '';
 
     if ($accommodation_id <= 0 || !dilijanvillas_is_valid_booking_date($start_date) || !dilijanvillas_is_valid_booking_date($end_date) || $end_date < $start_date) {
         wp_send_json_error(array('message' => 'Invalid dates or accommodation.'), 400);
@@ -2174,6 +2561,12 @@ function dilijanvillas_ajax_create_booking()
     update_post_meta((int) $booking_id, '_dv_currency', (string) $price['currency']);
     update_post_meta((int) $booking_id, '_dv_nights', (int) $price['nights']);
 
+    // Must be stored before the payment link is built — it picks the language of
+    // the PayLink page, and is what a link rebuilt from wp-admin reads later.
+    if ($lang !== '') {
+        update_post_meta((int) $booking_id, '_dv_lang', $lang);
+    }
+
     // Must be stored before the payment link is built — it becomes backUrl.
     $return_url = isset($_POST['return_url'])
         ? dilijanvillas_sanitize_internal_return_url((string) wp_unslash($_POST['return_url']))
@@ -2186,6 +2579,9 @@ function dilijanvillas_ajax_create_booking()
     if ($payment_url !== '') {
         update_post_meta((int) $booking_id, '_dv_status', 'payment_pending');
         update_post_meta((int) $booking_id, '_dv_payment_url', $payment_url);
+        // Starts the window in which these dates stay off the calendar for
+        // everyone else; see dilijanvillas_booking_payment_hold_is_active().
+        update_post_meta((int) $booking_id, '_dv_payment_hold_started_at', gmdate('c'));
     }
 
     wp_send_json_success(
@@ -2274,7 +2670,6 @@ function dilijanvillas_render_booking_details_metabox($post)
     $payment_url = (string) get_post_meta($post->ID, '_dv_payment_url', true);
     $total = (float) get_post_meta($post->ID, '_dv_total', true);
     $currency = (string) get_post_meta($post->ID, '_dv_currency', true);
-    $nights = (int) get_post_meta($post->ID, '_dv_nights', true);
 
     if ($status === '') {
         $status = 'pending';
@@ -2366,16 +2761,171 @@ function dilijanvillas_render_booking_details_metabox($post)
         <td><input id="dv_booking_currency" type="text" class="small-text" name="dv_booking_currency" value="<?php echo esc_attr($currency); ?>" /></td>
       </tr>
       <tr>
-        <th scope="row"><label for="dv_booking_nights"><?php esc_html_e('Nights', 'dilijanvillas'); ?></label></th>
-        <td><input id="dv_booking_nights" type="number" min="1" name="dv_booking_nights" value="<?php echo esc_attr((string) $nights); ?>" /></td>
-      </tr>
-      <tr>
         <th scope="row"><label for="dv_booking_payment_url"><?php esc_html_e('Payment URL', 'dilijanvillas'); ?></label></th>
         <td><input id="dv_booking_payment_url" type="url" class="large-text" name="dv_booking_payment_url" value="<?php echo esc_attr($payment_url); ?>" /></td>
+      </tr>
+      <tr>
+        <th scope="row"><?php esc_html_e('PayLink payment', 'dilijanvillas'); ?></th>
+        <td><?php dilijanvillas_render_booking_paylink_panel($post->ID); ?></td>
       </tr>
     </table>
     <?php
 }
+
+/**
+ * PayLink state for one booking, plus the on-demand re-check.
+ *
+ * Guests who close the tab instead of returning never trigger the automatic
+ * sync, so the booking would sit on "Payment pending" even though the card was
+ * charged. This asks PayLink directly and flips the status when it confirms.
+ *
+ * @param int $booking_id Booking post ID.
+ * @return void
+ */
+function dilijanvillas_render_booking_paylink_panel($booking_id)
+{
+    $booking_id = (int) $booking_id;
+    $request_id = trim((string) get_post_meta($booking_id, '_dv_paylink_request_id', true));
+    $order_id = (int) get_post_meta($booking_id, '_dv_paylink_order_id', true);
+    $paid_at = trim((string) get_post_meta($booking_id, '_dv_paylink_paid_detected_at', true));
+    $checked_at = trim((string) get_post_meta($booking_id, '_dv_paylink_last_check', true));
+    $last_error = trim((string) get_post_meta($booking_id, '_dv_paylink_last_error', true));
+
+    $format_stamp = static function ($iso) {
+        $ts = $iso !== '' ? strtotime($iso) : false;
+
+        return $ts ? wp_date('Y-m-d H:i', $ts) : '';
+    };
+
+    // Explains why these nights are (or are no longer) off the public calendar.
+    $booking_status = (string) get_post_meta($booking_id, '_dv_status', true);
+
+    if (in_array($booking_status, dilijanvillas_get_blocking_booking_statuses(), true)) {
+        $hold_label = __('dates blocked — booking is paid / confirmed', 'dilijanvillas');
+    } elseif ($booking_status === 'payment_pending' && dilijanvillas_booking_payment_hold_is_active($booking_id)) {
+        $hold_started = trim((string) get_post_meta($booking_id, '_dv_payment_hold_started_at', true));
+        $hold_start_ts = $hold_started !== '' ? strtotime($hold_started) : (int) get_post_time('U', true, $booking_id);
+        $hold_label = sprintf(
+            /* translators: %s: local time the date hold expires */
+            __('held until %s', 'dilijanvillas'),
+            wp_date('H:i', $hold_start_ts + (dilijanvillas_get_payment_hold_minutes() * MINUTE_IN_SECONDS))
+        );
+    } else {
+        $hold_label = __('not held — dates are on sale', 'dilijanvillas');
+    }
+
+    $rows = array(
+        __('Request ID', 'dilijanvillas') => $request_id !== '' ? $request_id : '—',
+        __('Order ID', 'dilijanvillas') => $order_id > 0 ? (string) $order_id : '—',
+        __('Payment confirmed at', 'dilijanvillas') => $format_stamp($paid_at) !== '' ? $format_stamp($paid_at) : '—',
+        __('Last checked', 'dilijanvillas') => $format_stamp($checked_at) !== '' ? $format_stamp($checked_at) : __('never', 'dilijanvillas'),
+        __('Date hold', 'dilijanvillas') => $hold_label,
+    );
+
+    echo '<ul style="margin:0 0 10px;">';
+    foreach ($rows as $label => $value) {
+        printf('<li style="margin:0 0 2px;"><strong>%s:</strong> <code>%s</code></li>', esc_html($label), esc_html($value));
+    }
+    echo '</ul>';
+
+    if ($last_error !== '') {
+        printf(
+            '<p style="margin:0 0 10px;color:#b32d2e;"><strong>%s:</strong> %s</p>',
+            esc_html__('Last PayLink error', 'dilijanvillas'),
+            esc_html($last_error)
+        );
+    }
+
+    if ($request_id === '' && $order_id <= 0) {
+        printf(
+            '<p class="description">%s</p>',
+            esc_html__('No PayLink request registered for this booking yet — nothing to check.', 'dilijanvillas')
+        );
+
+        return;
+    }
+
+    $check_url = wp_nonce_url(
+        add_query_arg(
+            array(
+                'action' => 'dilijanvillas_check_payment',
+                'booking' => $booking_id,
+            ),
+            admin_url('admin-post.php')
+        ),
+        'dilijanvillas_check_payment_' . $booking_id
+    );
+
+    printf(
+        '<a href="%s" class="button">%s</a> <span class="description">%s</span>',
+        esc_url($check_url),
+        esc_html__('Check payment status', 'dilijanvillas'),
+        esc_html__('Asks PayLink and sets the status to Paid when the full amount is confirmed. Unsaved edits on this screen are lost.', 'dilijanvillas')
+    );
+}
+
+/**
+ * Handle the "Check payment status" button on the booking edit screen.
+ *
+ * @return void
+ */
+function dilijanvillas_admin_check_paylink_payment()
+{
+    $booking_id = isset($_GET['booking']) ? (int) $_GET['booking'] : 0;
+
+    if ($booking_id <= 0 || !current_user_can('edit_post', $booking_id)) {
+        wp_die(esc_html__('You are not allowed to check this booking.', 'dilijanvillas'), '', array('response' => 403));
+    }
+
+    check_admin_referer('dilijanvillas_check_payment_' . $booking_id);
+
+    // A known order id is the documented lookup; the request uuid is the fallback
+    // the sync uses on its own.
+    $known_order_id = (int) get_post_meta($booking_id, '_dv_paylink_order_id', true);
+    $paid = dilijanvillas_paylink_am_sync_booking_status(
+        $booking_id,
+        $known_order_id > 0 ? (string) $known_order_id : ''
+    );
+
+    wp_safe_redirect(
+        add_query_arg(
+            'dv_payment_checked',
+            $paid ? 'paid' : 'unpaid',
+            (string) get_edit_post_link($booking_id, 'url')
+        )
+    );
+    exit;
+}
+add_action('admin_post_dilijanvillas_check_payment', 'dilijanvillas_admin_check_paylink_payment');
+
+/**
+ * Report the result of a manual payment check.
+ *
+ * @return void
+ */
+function dilijanvillas_admin_payment_check_notice()
+{
+    if (empty($_GET['dv_payment_checked'])) {
+        return;
+    }
+
+    $result = sanitize_text_field((string) wp_unslash($_GET['dv_payment_checked']));
+
+    if ($result === 'paid') {
+        printf(
+            '<div class="notice notice-success is-dismissible"><p>%s</p></div>',
+            esc_html__('PayLink confirmed the payment — this booking is now marked as Paid.', 'dilijanvillas')
+        );
+
+        return;
+    }
+
+    printf(
+        '<div class="notice notice-warning is-dismissible"><p>%s</p></div>',
+        esc_html__('PayLink has no confirmed payment for this booking yet. Set the status to Paid by hand if you have other proof.', 'dilijanvillas')
+    );
+}
+add_action('admin_notices', 'dilijanvillas_admin_payment_check_notice');
 
 /**
  * Render dv_unavailable details metabox.
@@ -2527,7 +3077,6 @@ function dilijanvillas_save_booking_metabox($post_id)
     $payment_url = isset($_POST['dv_booking_payment_url']) ? esc_url_raw((string) $_POST['dv_booking_payment_url']) : '';
     $manual_total = isset($_POST['dv_booking_total']) ? max(0, (float) $_POST['dv_booking_total']) : 0;
     $manual_currency = isset($_POST['dv_booking_currency']) ? sanitize_text_field((string) $_POST['dv_booking_currency']) : '';
-    $manual_nights = isset($_POST['dv_booking_nights']) ? max(0, (int) $_POST['dv_booking_nights']) : 0;
 
     update_post_meta($post_id, '_dv_status', $status);
     update_post_meta($post_id, '_dv_accommodation_id', $accommodation_id);
@@ -2549,14 +3098,15 @@ function dilijanvillas_save_booking_metabox($post_id)
     if (dilijanvillas_is_valid_booking_date($checkin) && dilijanvillas_is_valid_booking_date($checkout) && $checkout >= $checkin) {
         $price = dilijanvillas_calculate_booking_price($checkin, $checkout, (int) $accommodation_id);
         $total = $manual_total > 0 ? $manual_total : (float) $price['total'];
-        $nights = $manual_nights > 0 ? $manual_nights : (int) $price['nights'];
         $currency = $manual_currency !== '' ? $manual_currency : (string) $price['currency'];
         update_post_meta($post_id, '_dv_total', $total);
-        update_post_meta($post_id, '_dv_nights', $nights);
+        // Nights follow the chosen period — there is no field to override them.
+        update_post_meta($post_id, '_dv_nights', (int) $price['nights']);
         update_post_meta($post_id, '_dv_currency', $currency);
     } else {
+        // Without a usable period there is nothing to recount from, so the stored
+        // night count is left as it is instead of being wiped to zero.
         update_post_meta($post_id, '_dv_total', $manual_total);
-        update_post_meta($post_id, '_dv_nights', $manual_nights);
         update_post_meta($post_id, '_dv_currency', $manual_currency !== '' ? $manual_currency : 'AMD');
     }
 
@@ -2774,23 +3324,425 @@ function dilijanvillas_period_date_admin_notice()
 add_action('admin_notices', 'dilijanvillas_period_date_admin_notice');
 
 /**
- * Status column for the Unavailable periods list table.
+ * Add Customer name, Status, Accommodation, Check-in, Check-out and Total
+ * amount columns to the Bookings list.
+ *
+ * The generated booking title alone does not say who is where and when, so the
+ * list was unusable without opening every entry. The title also keeps the name
+ * it was created with, so a customer renamed afterwards only shows correctly in
+ * the Customer name column.
+ *
+ * @param array<string,string> $columns Existing columns.
+ * @return array<string,string>
+ */
+function dilijanvillas_booking_columns($columns)
+{
+    $added = array(
+        'dv_booking_customer' => __('Customer name', 'dilijanvillas'),
+        'dv_booking_status' => __('Status', 'dilijanvillas'),
+        'dv_booking_accommodation' => __('Accommodation', 'dilijanvillas'),
+        'dv_booking_checkin' => __('Check-in', 'dilijanvillas'),
+        'dv_booking_checkout' => __('Check-out', 'dilijanvillas'),
+        'dv_booking_total' => __('Total amount', 'dilijanvillas'),
+    );
+
+    $reordered = array();
+    foreach ($columns as $key => $label) {
+        $reordered[$key] = $label;
+        if ($key === 'title') {
+            $reordered = array_merge($reordered, $added);
+        }
+    }
+
+    if (!isset($reordered['dv_booking_status'])) {
+        $reordered = array_merge($reordered, $added);
+    }
+
+    return $reordered;
+}
+add_filter('manage_dv_booking_posts_columns', 'dilijanvillas_booking_columns');
+
+/**
+ * Render the custom Bookings columns.
+ *
+ * Dates print as stored (Y-m-d), matching the date inputs on the edit screen.
+ *
+ * @param string $column  Column key.
+ * @param int    $post_id Row post ID.
+ */
+function dilijanvillas_booking_column_content($column, $post_id)
+{
+    if ($column === 'dv_booking_customer') {
+        $customer_name = trim((string) get_post_meta($post_id, '_dv_customer_name', true));
+        if ($customer_name === '') {
+            echo '<span style="color:#8c8f94;">&mdash;</span>';
+
+            return;
+        }
+
+        echo esc_html($customer_name);
+
+        return;
+    }
+
+    if ($column === 'dv_booking_status') {
+        $status = (string) get_post_meta($post_id, '_dv_status', true);
+        if ($status === '') {
+            $status = 'pending';
+        }
+
+        $labels = dilijanvillas_get_booking_status_labels();
+        $label = isset($labels[$status]) ? $labels[$status] : $status;
+
+        $styles = array(
+            'paid' => 'color:#1a7f37;font-weight:600;',
+            'confirmed' => 'color:#2271b1;font-weight:600;',
+            'pending' => 'color:#996800;',
+            'payment_pending' => 'color:#996800;',
+            'cancelled' => 'color:#8c8f94;',
+        );
+
+        printf(
+            '<span style="%s">%s %s</span>',
+            esc_attr(isset($styles[$status]) ? $styles[$status] : ''),
+            $status === 'cancelled' ? '&#9675;' : '&#9679;',
+            esc_html($label)
+        );
+
+        return;
+    }
+
+    if ($column === 'dv_booking_accommodation') {
+        $accommodation_id = (int) get_post_meta($post_id, '_dv_accommodation_id', true);
+        if ($accommodation_id <= 0) {
+            echo '<span style="color:#8c8f94;">&mdash;</span>';
+
+            return;
+        }
+
+        $title = trim((string) get_the_title($accommodation_id));
+        echo esc_html($title !== '' ? $title : ('#' . $accommodation_id));
+
+        return;
+    }
+
+    if ($column === 'dv_booking_total') {
+        $total_raw = get_post_meta($post_id, '_dv_total', true);
+        if ($total_raw === '' || $total_raw === null) {
+            echo '<span style="color:#8c8f94;">&mdash;</span>';
+
+            return;
+        }
+
+        $total = (float) $total_raw;
+        $currency = trim((string) get_post_meta($post_id, '_dv_currency', true));
+        if ($currency === '') {
+            $currency = 'AMD';
+        }
+
+        printf(
+            '%s <code>%s</code>',
+            esc_html(number_format_i18n($total, (floor($total) === $total ? 0 : 2))),
+            esc_html($currency)
+        );
+
+        return;
+    }
+
+    $date_columns = array(
+        'dv_booking_checkin' => '_dv_checkin',
+        'dv_booking_checkout' => '_dv_checkout',
+    );
+
+    if (!isset($date_columns[$column])) {
+        return;
+    }
+
+    $value = (string) get_post_meta($post_id, $date_columns[$column], true);
+    if ($value === '') {
+        echo '<span style="color:#8c8f94;">&mdash;</span>';
+
+        return;
+    }
+
+    echo esc_html($value);
+}
+add_action('manage_dv_booking_posts_custom_column', 'dilijanvillas_booking_column_content', 10, 2);
+
+/**
+ * One entry per accommodation for the Bookings filter.
+ *
+ * Translations of one page are the same accommodation for the admin, so they
+ * collapse into a single option labelled with the default-language title.
+ *
+ * @return array<int,array<string,mixed>>
+ */
+function dilijanvillas_get_booking_filter_accommodations()
+{
+    $preferred_lang = function_exists('pll_default_language') ? (string) pll_default_language('slug') : '';
+    $groups = array();
+
+    foreach (dilijanvillas_get_all_accommodations_for_admin() as $accommodation) {
+        $id = isset($accommodation['id']) ? (int) $accommodation['id'] : 0;
+        if ($id <= 0) {
+            continue;
+        }
+
+        $key = $id;
+        if (function_exists('pll_get_post_translations')) {
+            $translations = pll_get_post_translations($id);
+            if (is_array($translations) && !empty($translations)) {
+                $key = min(array_map('intval', $translations));
+            }
+        }
+
+        $lang = isset($accommodation['lang']) ? (string) $accommodation['lang'] : '';
+        $is_preferred = $preferred_lang !== '' && $lang === $preferred_lang;
+        if (isset($groups[$key]) && !$is_preferred) {
+            continue;
+        }
+
+        $title = isset($accommodation['title']) ? trim((string) $accommodation['title']) : '';
+        $groups[$key] = array(
+            'id' => $id,
+            'title' => $title !== '' ? $title : ('#' . $id),
+        );
+    }
+
+    return array_values($groups);
+}
+
+/**
+ * Accommodation dropdown above the Bookings list.
+ *
+ * @param string $post_type Current list table post type.
+ */
+function dilijanvillas_booking_accommodation_filter($post_type)
+{
+    if ($post_type !== 'dv_booking') {
+        return;
+    }
+
+    $accommodations = dilijanvillas_get_booking_filter_accommodations();
+    if (empty($accommodations)) {
+        return;
+    }
+
+    $selected = isset($_GET['dv_accommodation']) ? (int) $_GET['dv_accommodation'] : 0;
+
+    echo '<select name="dv_accommodation">';
+    printf(
+        '<option value="0">%s</option>',
+        esc_html__('All accommodations', 'dilijanvillas')
+    );
+    foreach ($accommodations as $accommodation) {
+        printf(
+            '<option value="%d" %s>%s</option>',
+            (int) $accommodation['id'],
+            selected($selected, (int) $accommodation['id'], false),
+            esc_html((string) $accommodation['title'])
+        );
+    }
+    echo '</select>';
+}
+add_action('restrict_manage_posts', 'dilijanvillas_booking_accommodation_filter');
+
+/**
+ * Status dropdown above the Bookings list.
+ *
+ * @param string $post_type Current list table post type.
+ */
+function dilijanvillas_booking_status_filter($post_type)
+{
+    if ($post_type !== 'dv_booking') {
+        return;
+    }
+
+    $labels = dilijanvillas_get_booking_status_labels();
+    $selected = isset($_GET['dv_status']) ? sanitize_key(wp_unslash($_GET['dv_status'])) : '';
+
+    echo '<select name="dv_status">';
+    printf(
+        '<option value="">%s</option>',
+        esc_html__('All statuses', 'dilijanvillas')
+    );
+    foreach ($labels as $key => $label) {
+        printf(
+            '<option value="%s" %s>%s</option>',
+            esc_attr($key),
+            selected($selected, $key, false),
+            esc_html($label)
+        );
+    }
+    echo '</select>';
+}
+add_action('restrict_manage_posts', 'dilijanvillas_booking_status_filter');
+
+/**
+ * Apply the Bookings accommodation filter.
+ *
+ * It matches every translation of the chosen page, because a booking stores the
+ * page the guest actually booked on — the hy, ru and en versions of one cottage
+ * are the same accommodation here.
+ *
+ * @param WP_Query $query Current query.
+ */
+function dilijanvillas_filter_bookings_admin_query($query)
+{
+    global $pagenow;
+
+    if (!is_admin() || $pagenow !== 'edit.php' || !$query->is_main_query()) {
+        return;
+    }
+    if ($query->get('post_type') !== 'dv_booking') {
+        return;
+    }
+
+    $meta_query = $query->get('meta_query');
+    if (!is_array($meta_query)) {
+        $meta_query = array();
+    }
+
+    $accommodation_id = isset($_GET['dv_accommodation']) ? (int) $_GET['dv_accommodation'] : 0;
+    if ($accommodation_id > 0) {
+        $page_ids = dilijanvillas_expand_pages_to_all_languages(array($accommodation_id));
+        if (empty($page_ids)) {
+            $page_ids = array($accommodation_id);
+        }
+        $meta_query[] = array(
+            'key' => '_dv_accommodation_id',
+            'value' => $page_ids,
+            'compare' => 'IN',
+            'type' => 'NUMERIC',
+        );
+    }
+
+    $status = isset($_GET['dv_status']) ? sanitize_key(wp_unslash($_GET['dv_status'])) : '';
+    $status_labels = dilijanvillas_get_booking_status_labels();
+    if ($status !== '' && isset($status_labels[$status])) {
+        if ($status === 'pending') {
+            // A booking with no stored status shows as Pending in the list (see the
+            // column renderer), so the filter has to catch those rows too — not just
+            // the ones carrying the explicit 'pending' value.
+            $meta_query[] = array(
+                'relation' => 'OR',
+                array('key' => '_dv_status', 'value' => 'pending'),
+                array('key' => '_dv_status', 'compare' => 'NOT EXISTS'),
+            );
+        } else {
+            $meta_query[] = array(
+                'key' => '_dv_status',
+                'value' => $status,
+            );
+        }
+    }
+
+    if (!empty($meta_query)) {
+        $query->set('meta_query', $meta_query);
+    }
+}
+add_action('pre_get_posts', 'dilijanvillas_filter_bookings_admin_query');
+
+/**
+ * Let the Bookings search box match the customer name and phone.
+ *
+ * WordPress searches post titles only, and a booking title keeps the name it was
+ * created with — a customer renamed afterwards became unfindable, and the phone
+ * was never in the title at all. The stored `_dv_customer_name` and
+ * `_dv_customer_phone` are ORed into the existing title search with an EXISTS
+ * subquery, so no join can duplicate rows.
+ *
+ * @param string   $search Search SQL, already prefixed with " AND ".
+ * @param WP_Query $query  Current query.
+ * @return string
+ */
+function dilijanvillas_search_bookings_by_customer($search, $query)
+{
+    global $pagenow, $wpdb;
+
+    if ($search === '' || !is_admin() || $pagenow !== 'edit.php' || !$query->is_main_query()) {
+        return $search;
+    }
+    if ($query->get('post_type') !== 'dv_booking') {
+        return $search;
+    }
+
+    $term = trim((string) $query->get('s'));
+    if ($term === '') {
+        return $search;
+    }
+
+    $like = '%' . $wpdb->esc_like($term) . '%';
+    $clauses = array(
+        $wpdb->prepare("dv_search_meta.meta_key = '_dv_customer_name' AND dv_search_meta.meta_value LIKE %s", $like),
+        $wpdb->prepare("dv_search_meta.meta_key = '_dv_customer_phone' AND dv_search_meta.meta_value LIKE %s", $like),
+    );
+
+    // Phones are stored as typed — "+374 55 12 34 56", "+37455123456", "055 12 34 56"
+    // are the same number — so digits are also compared against the stored value
+    // stripped of its formatting.
+    $digits = preg_replace('/\D+/', '', $term);
+    if ($digits !== '') {
+        $normalized = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(dv_search_meta.meta_value,"
+            . " ' ', ''), '-', ''), '(', ''), ')', ''), '+', ''), '.', '')";
+
+        $digit_variants = array($digits);
+        // A national number typed with its trunk "0" still has to find the number
+        // stored in international form.
+        if (strlen($digits) > 1 && $digits[0] === '0') {
+            $digit_variants[] = substr($digits, 1);
+        }
+
+        foreach ($digit_variants as $variant) {
+            $clauses[] = $wpdb->prepare(
+                "dv_search_meta.meta_key = '_dv_customer_phone' AND {$normalized} LIKE %s",
+                '%' . $wpdb->esc_like($variant) . '%'
+            );
+        }
+    }
+
+    $customer_match = "EXISTS (SELECT 1 FROM {$wpdb->postmeta} AS dv_search_meta"
+        . " WHERE dv_search_meta.post_id = {$wpdb->posts}.ID"
+        . ' AND ((' . implode(') OR (', $clauses) . ')))';
+
+    // Core hands over " AND (<title conditions>)"; widen that group instead of
+    // appending, or the OR would swallow the rest of the WHERE clause.
+    $conditions = preg_replace('/^\s*AND\s+/i', '', $search);
+
+    return ' AND (' . $conditions . ' OR ' . $customer_match . ') ';
+}
+add_filter('posts_search', 'dilijanvillas_search_bookings_by_customer', 10, 2);
+
+/**
+ * Add Status, Accommodations, Start date, End date and Internal note columns to
+ * the Unavailable periods list.
+ *
+ * Same reason as the Price periods list: the title alone says nothing about what
+ * a period blocks or when, so every row had to be opened to be understood.
  *
  * @param array<string,string> $columns Existing columns.
  * @return array<string,string>
  */
 function dilijanvillas_unavailable_columns($columns)
 {
+    $added = array(
+        'dv_status' => __('Status', 'dilijanvillas'),
+        'dv_unavailable_scope' => __('Accommodations', 'dilijanvillas'),
+        'dv_unavailable_start' => __('Start date', 'dilijanvillas'),
+        'dv_unavailable_end' => __('End date', 'dilijanvillas'),
+        'dv_unavailable_note' => __('Internal note', 'dilijanvillas'),
+    );
+
     $reordered = array();
     foreach ($columns as $key => $label) {
         $reordered[$key] = $label;
         if ($key === 'title') {
-            $reordered['dv_status'] = __('Status', 'dilijanvillas');
+            $reordered = array_merge($reordered, $added);
         }
     }
 
     if (!isset($reordered['dv_status'])) {
-        $reordered['dv_status'] = __('Status', 'dilijanvillas');
+        $reordered = array_merge($reordered, $added);
     }
 
     return $reordered;
@@ -2798,37 +3750,431 @@ function dilijanvillas_unavailable_columns($columns)
 add_filter('manage_dv_unavailable_posts_columns', 'dilijanvillas_unavailable_columns');
 
 /**
- * Render the Status column for Unavailable periods.
+ * Render the custom Unavailable periods columns.
+ *
+ * Dates print as stored (Y-m-d) so they match the date inputs on the edit screen
+ * and stay unambiguous for the mixed hy/ru/en admins.
  *
  * @param string $column  Column key.
  * @param int    $post_id Row post ID.
  */
 function dilijanvillas_unavailable_column_content($column, $post_id)
 {
-    if ($column !== 'dv_status') {
-        return;
-    }
+    if ($column === 'dv_status') {
+        $status = (string) get_post_meta($post_id, '_dv_unavailable_status', true);
+        if ($status === '') {
+            $status = 'active';
+        }
 
-    $status = (string) get_post_meta($post_id, '_dv_unavailable_status', true);
-    if ($status === '') {
-        $status = 'active';
-    }
+        if ($status === 'active') {
+            printf(
+                '<span style="color:#1a7f37;font-weight:600;">&#9679; %s</span>',
+                esc_html__('Active', 'dilijanvillas')
+            );
 
-    if ($status === 'active') {
+            return;
+        }
+
         printf(
-            '<span style="color:#1a7f37;font-weight:600;">&#9679; %s</span>',
-            esc_html__('Active', 'dilijanvillas')
+            '<span style="color:#8c8f94;">&#9675; %s</span>',
+            esc_html__('Inactive', 'dilijanvillas')
         );
 
         return;
     }
 
-    printf(
-        '<span style="color:#8c8f94;">&#9675; %s</span>',
-        esc_html__('Inactive', 'dilijanvillas')
+    if ($column === 'dv_unavailable_scope') {
+        dilijanvillas_render_period_scope_cell($post_id);
+
+        return;
+    }
+
+    $date_columns = array(
+        'dv_unavailable_start' => '_dv_unavailable_start',
+        'dv_unavailable_end' => '_dv_unavailable_end',
     );
+
+    if (isset($date_columns[$column])) {
+        $value = (string) get_post_meta($post_id, $date_columns[$column], true);
+        if ($value === '') {
+            echo '<span style="color:#8c8f94;">&mdash;</span>';
+
+            return;
+        }
+
+        echo esc_html($value);
+
+        return;
+    }
+
+    if ($column !== 'dv_unavailable_note') {
+        return;
+    }
+
+    $note = trim((string) get_post_meta($post_id, '_dv_unavailable_note', true));
+    if ($note === '') {
+        echo '<span style="color:#8c8f94;">&mdash;</span>';
+
+        return;
+    }
+
+    echo esc_html(wp_trim_words($note, 12, '…'));
 }
 add_action('manage_dv_unavailable_posts_custom_column', 'dilijanvillas_unavailable_column_content', 10, 2);
+
+/**
+ * Print the Accommodations cell of a price or unavailable period.
+ *
+ * Both post types store the scope in the same meta and both lists need the same
+ * summary, so the rendering lives in one place.
+ *
+ * @param int $post_id Period post ID.
+ */
+function dilijanvillas_render_period_scope_cell($post_id)
+{
+    $ids = dilijanvillas_get_period_accommodation_ids($post_id);
+
+    if (empty($ids)) {
+        echo '<span style="color:#8c8f94;">&mdash;</span>';
+
+        return;
+    }
+
+    if (in_array(0, $ids, true)) {
+        printf(
+            '<span style="color:#1a7f37;font-weight:600;">%s</span>',
+            esc_html__('All accommodations', 'dilijanvillas')
+        );
+
+        return;
+    }
+
+    // Translations of one page are a single accommodation for the admin —
+    // collapse them so an "all languages" period stays readable.
+    $groups = array();
+    foreach ($ids as $id) {
+        $key = $id;
+        if (function_exists('pll_get_post_translations')) {
+            $translations = pll_get_post_translations($id);
+            if (is_array($translations) && !empty($translations)) {
+                $key = min(array_map('intval', $translations));
+            }
+        }
+        if (!isset($groups[$key])) {
+            $groups[$key] = $id;
+        }
+    }
+
+    $names = array();
+    foreach (array_slice(array_values($groups), 0, 3) as $id) {
+        $title = trim((string) get_the_title($id));
+        $names[] = $title !== '' ? $title : ('#' . $id);
+    }
+
+    $output = implode(', ', $names);
+    if (count($groups) > 3) {
+        $output .= ' ' . sprintf(
+            /* translators: %d: number of further accommodations. */
+            __('(+%d more)', 'dilijanvillas'),
+            count($groups) - 3
+        );
+    }
+
+    echo esc_html($output);
+}
+
+/**
+ * Add Status, Accommodations, Start date, End date and Nightly rate columns to
+ * the Price periods list.
+ *
+ * Without them the list shows only the title, so the dates and the rate — the
+ * whole content of a period — are invisible until you open each entry.
+ *
+ * @param array<string,string> $columns Existing columns.
+ * @return array<string,string>
+ */
+function dilijanvillas_price_period_columns($columns)
+{
+    $added = array(
+        'dv_price_status' => __('Status', 'dilijanvillas'),
+        'dv_price_scope' => __('Accommodations', 'dilijanvillas'),
+        'dv_price_start' => __('Start date', 'dilijanvillas'),
+        'dv_price_end' => __('End date', 'dilijanvillas'),
+        'dv_price_rate' => __('Nightly rate', 'dilijanvillas'),
+    );
+
+    $reordered = array();
+    foreach ($columns as $key => $label) {
+        $reordered[$key] = $label;
+        if ($key === 'title') {
+            $reordered = array_merge($reordered, $added);
+        }
+    }
+
+    // No title column (unlikely, but the list is filterable): append instead of
+    // silently dropping the columns.
+    if (!isset($reordered['dv_price_status'])) {
+        $reordered = array_merge($reordered, $added);
+    }
+
+    return $reordered;
+}
+add_filter('manage_dv_price_period_posts_columns', 'dilijanvillas_price_period_columns');
+
+/**
+ * Render the custom Price periods columns.
+ *
+ * Dates print as stored (Y-m-d) so they match the date inputs on the edit screen
+ * and stay unambiguous for the mixed hy/ru/en admins.
+ *
+ * @param string $column  Column key.
+ * @param int    $post_id Row post ID.
+ */
+function dilijanvillas_price_period_column_content($column, $post_id)
+{
+    if ($column === 'dv_price_status') {
+        $status = (string) get_post_meta($post_id, '_dv_price_status', true);
+        if ($status === '') {
+            $status = 'active';
+        }
+
+        if ($status === 'active') {
+            printf(
+                '<span style="color:#1a7f37;font-weight:600;">&#9679; %s</span>',
+                esc_html__('Active', 'dilijanvillas')
+            );
+
+            return;
+        }
+
+        printf(
+            '<span style="color:#8c8f94;">&#9675; %s</span>',
+            esc_html__('Inactive', 'dilijanvillas')
+        );
+
+        return;
+    }
+
+    if ($column === 'dv_price_scope') {
+        dilijanvillas_render_period_scope_cell($post_id);
+
+        return;
+    }
+
+    $date_columns = array(
+        'dv_price_start' => '_dv_price_start',
+        'dv_price_end' => '_dv_price_end',
+    );
+
+    if (isset($date_columns[$column])) {
+        $value = (string) get_post_meta($post_id, $date_columns[$column], true);
+        if ($value === '') {
+            echo '<span style="color:#8c8f94;">&mdash;</span>';
+
+            return;
+        }
+
+        echo esc_html($value);
+
+        return;
+    }
+
+    if ($column !== 'dv_price_rate') {
+        return;
+    }
+
+    $rate = (string) get_post_meta($post_id, '_dv_price_rate', true);
+    if ($rate === '') {
+        echo '<span style="color:#8c8f94;">&mdash;</span>';
+
+        return;
+    }
+
+    $rate_value = (float) $rate;
+    $settings = dilijanvillas_get_booking_settings();
+
+    printf(
+        '%s <code>%s</code>',
+        esc_html(number_format_i18n($rate_value, (floor($rate_value) === $rate_value ? 0 : 2))),
+        esc_html((string) $settings['currency'])
+    );
+}
+add_action('manage_dv_price_period_posts_custom_column', 'dilijanvillas_price_period_column_content', 10, 2);
+
+/**
+ * Accommodation IDs a period (price or unavailable) is stored against.
+ *
+ * Falls back to the legacy single-ID meta so periods saved before the
+ * multi-select still report their scope. A 0 in the list means "all".
+ *
+ * @param int $post_id Period post ID.
+ * @return array<int,int>
+ */
+function dilijanvillas_get_period_accommodation_ids($post_id)
+{
+    $ids = get_post_meta((int) $post_id, '_dv_accommodation_ids', false);
+    if (!is_array($ids)) {
+        $ids = array();
+    }
+    $ids = array_values(array_unique(array_map('intval', $ids)));
+
+    if (empty($ids)) {
+        $legacy = get_post_meta((int) $post_id, '_dv_accommodation_id', true);
+        if ($legacy !== '') {
+            $ids = array((int) $legacy);
+        }
+    }
+
+    return $ids;
+}
+
+/**
+ * Price periods that affect one accommodation (or the global ones).
+ *
+ * Matches the front-end rule in dilijanvillas_get_price_periods(): a period
+ * counts when it is assigned to the page (or any of its translations) and also
+ * when it is assigned to ALL accommodations, because such a period does price
+ * this page too. Runs as a separate ID query so the OR meta joins cannot
+ * duplicate rows in the list table.
+ *
+ * @param int $accommodation_id Page ID, or 0 for "all accommodations" periods only.
+ * @return array<int,int>
+ */
+function dilijanvillas_get_price_period_ids_for_accommodation($accommodation_id)
+{
+    $accommodation_id = (int) $accommodation_id;
+
+    $global_clause = array(
+        'relation' => 'OR',
+        array(
+            'key' => '_dv_accommodation_ids',
+            'value' => 0,
+            'compare' => '=',
+            'type' => 'NUMERIC',
+        ),
+        array(
+            'key' => '_dv_accommodation_id',
+            'value' => 0,
+            'compare' => '=',
+            'type' => 'NUMERIC',
+        ),
+    );
+
+    if ($accommodation_id > 0) {
+        $page_ids = dilijanvillas_expand_pages_to_all_languages(array($accommodation_id));
+        if (empty($page_ids)) {
+            $page_ids = array($accommodation_id);
+        }
+
+        $meta_query = array(
+            'relation' => 'OR',
+            array(
+                'key' => '_dv_accommodation_ids',
+                'value' => $page_ids,
+                'compare' => 'IN',
+                'type' => 'NUMERIC',
+            ),
+            array(
+                'key' => '_dv_accommodation_id',
+                'value' => $page_ids,
+                'compare' => 'IN',
+                'type' => 'NUMERIC',
+            ),
+            $global_clause,
+        );
+    } else {
+        $meta_query = $global_clause;
+    }
+
+    $found = get_posts(
+        array(
+            'post_type' => 'dv_price_period',
+            'post_status' => array('publish', 'draft', 'pending', 'future', 'private', 'trash'),
+            'posts_per_page' => -1,
+            'fields' => 'ids',
+            'no_found_rows' => true,
+            'suppress_filters' => false,
+            'meta_query' => $meta_query,
+        )
+    );
+
+    if (!is_array($found)) {
+        return array();
+    }
+
+    return array_values(array_unique(array_map('intval', $found)));
+}
+
+/**
+ * Accommodation dropdown above the Price periods list table.
+ *
+ * @param string $post_type Current list table post type.
+ */
+function dilijanvillas_price_period_admin_filter($post_type)
+{
+    if ($post_type !== 'dv_price_period') {
+        return;
+    }
+
+    $selected = isset($_GET['dv_accommodation']) ? sanitize_text_field((string) $_GET['dv_accommodation']) : '';
+
+    $accommodations = dilijanvillas_get_all_accommodations_for_admin();
+    $groups = array();
+    foreach ($accommodations as $accommodation) {
+        $lang_slug = isset($accommodation['lang']) ? (string) $accommodation['lang'] : '';
+        $groups[$lang_slug][] = $accommodation;
+    }
+    ksort($groups);
+    ?>
+    <label class="screen-reader-text" for="dv_accommodation"><?php esc_html_e('Filter by accommodation', 'dilijanvillas'); ?></label>
+    <select id="dv_accommodation" name="dv_accommodation">
+      <option value=""><?php esc_html_e('All accommodations', 'dilijanvillas'); ?></option>
+      <option value="0" <?php selected($selected, '0'); ?>><?php esc_html_e('Global periods only (apply to all)', 'dilijanvillas'); ?></option>
+      <?php foreach ($groups as $lang_slug => $items) : ?>
+        <?php $label = $lang_slug !== '' ? strtoupper($lang_slug) : __('Default', 'dilijanvillas'); ?>
+        <optgroup label="<?php echo esc_attr($label); ?>">
+          <?php foreach ($items as $accommodation) : ?>
+            <?php
+              $option_id = isset($accommodation['id']) ? (int) $accommodation['id'] : 0;
+              $title = isset($accommodation['title']) ? (string) $accommodation['title'] : ('#' . $option_id);
+              $template = isset($accommodation['template']) ? (string) $accommodation['template'] : '';
+              $type_hint = $template === 'private-willa.php' ? __('Villa', 'dilijanvillas') : __('Cottage', 'dilijanvillas');
+            ?>
+            <option value="<?php echo esc_attr((string) $option_id); ?>" <?php selected($selected, (string) $option_id); ?>>
+              <?php echo esc_html($title . ' — ' . $type_hint); ?>
+            </option>
+          <?php endforeach; ?>
+        </optgroup>
+      <?php endforeach; ?>
+    </select>
+    <?php
+}
+add_action('restrict_manage_posts', 'dilijanvillas_price_period_admin_filter');
+
+/**
+ * Apply the accommodation dropdown to the Price periods list query.
+ *
+ * @param WP_Query $query Current query.
+ */
+function dilijanvillas_price_period_admin_filter_query($query)
+{
+    if (!is_admin() || !$query->is_main_query()) {
+        return;
+    }
+    if ($query->get('post_type') !== 'dv_price_period') {
+        return;
+    }
+    if (!isset($_GET['dv_accommodation']) || (string) $_GET['dv_accommodation'] === '') {
+        return;
+    }
+
+    $matching = dilijanvillas_get_price_period_ids_for_accommodation((int) $_GET['dv_accommodation']);
+
+    // Empty result: post__in with a 0 keeps the list empty instead of showing
+    // everything, which is what an unfiltered post__in would do.
+    $query->set('post__in', !empty($matching) ? $matching : array(0));
+}
+add_action('pre_get_posts', 'dilijanvillas_price_period_admin_filter_query');
 
 /**
  * Render dv_price_period details metabox.

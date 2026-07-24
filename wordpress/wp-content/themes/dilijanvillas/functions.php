@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 /**
  * Theme setup and assets.
  *
@@ -9,8 +9,27 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+/**
+ * Pin the whole site — front end and wp-admin — to Armenian time.
+ *
+ * The WordPress timezone was left on UTC, so every displayed time (post dates,
+ * booking hold expiry, "added X ago") ran 4 hours behind the resort's wall clock.
+ * Armenia is permanently UTC+4 with no daylight saving, so Asia/Yerevan and a
+ * fixed +4 offset always agree. This only changes how stored UTC times are
+ * *shown* (via wp_date()/current_time()); values are still stored in UTC, and the
+ * noon-anchored gmdate() booking-date logic is unaffected because WordPress keeps
+ * PHP itself on UTC.
+ */
+add_filter('pre_option_timezone_string', static function () {
+    return 'Asia/Yerevan';
+});
+add_filter('pre_option_gmt_offset', static function () {
+    return 4;
+});
+
 require_once get_template_directory() . '/inc/paylink-diagnostics.php';
 require_once get_template_directory() . '/inc/booking-system.php';
+require_once get_template_directory() . '/inc/phone-countries.php';
 // Site access gate disabled — site is open to visitors.
 // require_once get_template_directory() . '/inc/site-access-gate.php';
 require_once get_template_directory() . '/inc/polylang-home.php';

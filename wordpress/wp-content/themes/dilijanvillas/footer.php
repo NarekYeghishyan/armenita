@@ -199,22 +199,7 @@
               <span class="booking-selector__label"><span class="booking-selector__icon">📞</span><span data-i18n="booking_label_phone">Phone</span></span>
               <div class="booking-selector__phone" data-booking-phone>
                 <select class="booking-selector__phone-cc" name="phoneCountry" data-booking-phone-country aria-label="Country code">
-                  <option value="374" data-iso="AM" selected>+374 AM</option>
-                  <option value="7" data-iso="RU">+7 RU</option>
-                  <option value="995" data-iso="GE">+995 GE</option>
-                  <option value="380" data-iso="UA">+380 UA</option>
-                  <option value="1" data-iso="US">+1 US/CA</option>
-                  <option value="44" data-iso="GB">+44 UK</option>
-                  <option value="49" data-iso="DE">+49 DE</option>
-                  <option value="33" data-iso="FR">+33 FR</option>
-                  <option value="39" data-iso="IT">+39 IT</option>
-                  <option value="34" data-iso="ES">+34 ES</option>
-                  <option value="90" data-iso="TR">+90 TR</option>
-                  <option value="971" data-iso="AE">+971 AE</option>
-                  <option value="972" data-iso="IL">+972 IL</option>
-                  <option value="98" data-iso="IR">+98 IR</option>
-                  <option value="86" data-iso="CN">+86 CN</option>
-                  <option value="91" data-iso="IN">+91 IN</option>
+                  <?php dilijanvillas_render_phone_country_options('AM'); ?>
                 </select>
                 <input type="tel" class="booking-selector__phone-input" name="phone" required autocomplete="tel" placeholder="99 999 999" inputmode="tel" />
               </div>

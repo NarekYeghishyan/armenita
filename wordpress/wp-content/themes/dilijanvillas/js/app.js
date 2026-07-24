@@ -105,6 +105,7 @@
       booking_label_checkin: "Մուտքի ամսաթիվ",
       booking_label_checkout: "Դուրս գալու ամսաթիվ",
       booking_label_stay_dates: "Ամրագրման ժամանակաշրջան",
+      booking_day_blocked: "զբաղված է",
       booking_label_stay_length: "Մնալու տևողություն",
       booking_label_guests: "Հյուրեր",
       booking_label_accommodation_type: "Բնակության տեսակ",
@@ -262,6 +263,7 @@
       booking_label_checkin: "Дата заезда",
       booking_label_checkout: "Дата выезда",
       booking_label_stay_dates: "Период проживания",
+      booking_day_blocked: "занято",
       booking_label_stay_length: "Длительность проживания",
       booking_label_guests: "Гости",
       booking_label_accommodation_type: "Тип размещения",
@@ -419,6 +421,7 @@
       booking_label_checkin: "Check-in date",
       booking_label_checkout: "Check-out date",
       booking_label_stay_dates: "Stay period",
+      booking_day_blocked: "blocked",
       booking_label_stay_length: "Stay length",
       booking_label_guests: "Guests",
       booking_label_accommodation_type: "Accommodation type",
@@ -477,6 +480,90 @@
       footer_credit_prefix: "Site by ",
       footer_tag: "Armenia",
       footer_top_aria: "Back to top",
+    },
+  };
+
+  /**
+   * Month/weekday names for the booking date picker. flatpickr is loaded from the CDN without
+   * its l10n bundles, so the locales the site actually offers are declared here instead — and
+   * Armenian is not shipped by flatpickr at all. English falls through to flatpickr's default.
+   */
+  const FLATPICKR_LOCALES = {
+    hy: {
+      weekdays: {
+        shorthand: ["Կիր", "Երկ", "Երք", "Չրք", "Հնգ", "Ուր", "Շբթ"],
+        longhand: [
+          "Կիրակի",
+          "Երկուշաբթի",
+          "Երեքշաբթի",
+          "Չորեքշաբթի",
+          "Հինգշաբթի",
+          "Ուրբաթ",
+          "Շաբաթ",
+        ],
+      },
+      months: {
+        shorthand: ["Հնվ", "Փտվ", "Մրտ", "Ապր", "Մյս", "Հնս", "Հլս", "Օգս", "Սեպ", "Հոկ", "Նոյ", "Դեկ"],
+        longhand: [
+          "Հունվար",
+          "Փետրվար",
+          "Մարտ",
+          "Ապրիլ",
+          "Մայիս",
+          "Հունիս",
+          "Հուլիս",
+          "Օգոստոս",
+          "Սեպտեմբեր",
+          "Հոկտեմբեր",
+          "Նոյեմբեր",
+          "Դեկտեմբեր",
+        ],
+      },
+      firstDayOfWeek: 1,
+      ordinal: () => "",
+      rangeSeparator: " – ",
+      weekAbbreviation: "Շաբ.",
+      scrollTitle: "Ոլորեք մեծացնելու համար",
+      toggleTitle: "Սեղմեք փոխարկելու համար",
+      amPM: ["ԿԱ", "ԿՀ"],
+    },
+    ru: {
+      weekdays: {
+        shorthand: ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"],
+        longhand: [
+          "Воскресенье",
+          "Понедельник",
+          "Вторник",
+          "Среда",
+          "Четверг",
+          "Пятница",
+          "Суббота",
+        ],
+      },
+      months: {
+        shorthand: ["Янв", "Фев", "Март", "Апр", "Май", "Июнь", "Июль", "Авг", "Сен", "Окт", "Ноя", "Дек"],
+        longhand: [
+          "Январь",
+          "Февраль",
+          "Март",
+          "Апрель",
+          "Май",
+          "Июнь",
+          "Июль",
+          "Август",
+          "Сентябрь",
+          "Октябрь",
+          "Ноябрь",
+          "Декабрь",
+        ],
+      },
+      firstDayOfWeek: 1,
+      ordinal: () => "",
+      rangeSeparator: " — ",
+      weekAbbreviation: "Нед.",
+      scrollTitle: "Прокрутите для увеличения",
+      toggleTitle: "Нажмите для переключения",
+      amPM: ["ДП", "ПП"],
     },
   };
 
@@ -1747,6 +1834,21 @@
     });
   }
 
+  // Creating a booking registers a PayLink request, which takes a couple of
+  // seconds — long enough for an impatient second click to produce a second
+  // booking and a second payment link. The label stays in the DOM (it carries
+  // its data-i18n binding); CSS hides it and draws the spinner in its place.
+  function setBookingSubmitBusy(button, busy) {
+    if (!button) return;
+    button.disabled = busy;
+    button.classList.toggle("is-loading", busy);
+    if (busy) {
+      button.setAttribute("aria-busy", "true");
+    } else {
+      button.removeAttribute("aria-busy");
+    }
+  }
+
   function initBookingSelectors() {
     const forms = Array.from(document.querySelectorAll("[data-booking-form]"));
     if (!forms.length) return;
@@ -1776,13 +1878,52 @@
           }
           return "374";
         };
+        /**
+         * Digits allowed after the dial code, for the country currently selected.
+         * Rendered onto each <option> by inc/phone-countries.php so the limits live
+         * with the country list instead of being duplicated here. Falls back to the
+         * E.164 ceiling of 15 when the markup predates the attribute.
+         */
+        const getSelectedCountryOption = () => (
+          phoneCountrySelect
+            && phoneCountrySelect.options
+            && phoneCountrySelect.options[phoneCountrySelect.selectedIndex]
+        ) || null;
+        const getMaxNationalDigits = () => {
+          const opt = getSelectedCountryOption();
+          const declared = opt ? parseInt(opt.getAttribute("data-nsn-max") || "", 10) : NaN;
+          return declared > 0 ? declared : 15;
+        };
+        /**
+         * Digit grouping for the selected country: Armenia reads in pairs (94-60-56-65),
+         * most others in threes. Declared on the <option> by inc/phone-countries.php.
+         */
+        const getNationalFormat = () => {
+          const opt = getSelectedCountryOption();
+          const rawGroups = opt ? String(opt.getAttribute("data-nsn-groups") || "") : "";
+          const groups = rawGroups
+            .split(",")
+            .map((n) => parseInt(n, 10))
+            .filter((n) => n > 0);
+          const rawSep = opt ? opt.getAttribute("data-nsn-sep") : null;
+          return { groups, sep: rawSep === null ? " " : rawSep };
+        };
         const groupNational = (digits) => {
           if (!digits) return "";
+          const { groups, sep } = getNationalFormat();
           const out = [];
-          for (let i = 0; i < digits.length; i += 3) {
-            out.push(digits.slice(i, i + 3));
+          let i = 0;
+          for (let g = 0; g < groups.length && i < digits.length; g += 1) {
+            out.push(digits.slice(i, i + groups[g]));
+            i += groups[g];
           }
-          return out.join(" ");
+          // Anything past the declared pattern (and every country without one)
+          // keeps the original grouping of three.
+          while (i < digits.length) {
+            out.push(digits.slice(i, i + 3));
+            i += 3;
+          }
+          return out.join(sep);
         };
         const formatNational = (raw) => {
           let digits = String(raw || "").replace(/\D/g, "");
@@ -1791,8 +1932,18 @@
           if (digits.startsWith(cc) && digits.length > cc.length) {
             digits = digits.slice(cc.length);
           }
-          digits = digits.slice(0, 12);
+          digits = digits.slice(0, getMaxNationalDigits());
           return groupNational(digits);
+        };
+        /**
+         * A full-length number formatted for the selected country gives both the
+         * placeholder and the maxlength. Deriving them from the same string keeps
+         * maxlength counting the separators, whatever the grouping happens to be.
+         */
+        const syncPhoneConstraints = () => {
+          const sample = groupNational("9".repeat(getMaxNationalDigits()));
+          phoneInput.setAttribute("maxlength", String(sample.length));
+          phoneInput.setAttribute("placeholder", sample);
         };
         const reformatInput = () => {
           const start = phoneInput.selectionStart;
@@ -1805,7 +1956,7 @@
           }
         };
         phoneInput.setAttribute("inputmode", "tel");
-        phoneInput.setAttribute("maxlength", "16");
+        syncPhoneConstraints();
         if (phoneInput.value) {
           phoneInput.value = formatNational(phoneInput.value);
         }
@@ -1813,6 +1964,9 @@
         phoneInput.addEventListener("paste", () => setTimeout(reformatInput, 0));
         if (phoneCountrySelect) {
           phoneCountrySelect.addEventListener("change", () => {
+            // Constraints first: a switch to a shorter country must trim what is
+            // already typed, not leave an over-long number sitting in the field.
+            syncPhoneConstraints();
             if (phoneInput.value) phoneInput.value = formatNational(phoneInput.value);
             phoneInput.focus();
           });
@@ -2121,8 +2275,9 @@
         if (!dayElem || !dateObj) return;
         const ymd = formatDayYMD(dateObj);
         if (isBlockedDay(ymd)) {
+          const blockedLabel = (STRINGS[getLang()] || STRINGS.en).booking_day_blocked || "blocked";
           dayElem.classList.add("dv-day-blocked");
-          dayElem.setAttribute("aria-label", `${dayElem.getAttribute("aria-label") || ymd} – blocked`);
+          dayElem.setAttribute("aria-label", `${dayElem.getAttribute("aria-label") || ymd} – ${blockedLabel}`);
         } else {
           dayElem.classList.remove("dv-day-blocked");
         }
@@ -2131,12 +2286,14 @@
       if (rangeInput && startDateInput && endDateInput && typeof window.flatpickr === "function") {
         const dict = STRINGS[getLang()] || STRINGS.en;
         rangeInput.placeholder = dict.booking_label_stay_dates || "Stay period";
+        const pickerLocale = FLATPICKR_LOCALES[getLang()];
         rangePicker = window.flatpickr(rangeInput, {
           mode: "range",
           dateFormat: "Y-m-d",
           minDate: "today",
           disableMobile: true,
           clickOpens: true,
+          ...(pickerLocale ? { locale: pickerLocale } : {}),
           defaultDate: (startDateInput.value && endDateInput.value) ? [startDateInput.value, endDateInput.value] : [],
           onDayCreate: (_dObj, _dStr, _fp, dayElem) => {
             markBlockedDay(dayElem, dayElem.dateObj);
@@ -2240,6 +2397,8 @@
           return;
         }
 
+        const submitButton = form.querySelector('.booking-selector__submit, button[type="submit"]');
+
         const submitBooking = async () => {
           if (!ajaxUrl || !nonce) {
             alert("Booking endpoint is not configured.");
@@ -2269,6 +2428,13 @@
           body.set("website", hp ? String(hp.value || "") : "");
           // PayLink sends the guest back here after paying.
           body.set("return_url", window.location.href.split("#")[0]);
+          // The payment page opens in the language this page is being read in.
+          body.set(
+            "lang",
+            (bookingConfig && bookingConfig.lang)
+              ? String(bookingConfig.lang)
+              : String(document.documentElement.lang || "")
+          );
 
           const response = await fetch(ajaxUrl, {
             method: "POST",
@@ -2283,21 +2449,36 @@
 
           updateBookingSummary();
           if (json.data && json.data.payment_url) {
+            // Stays busy on purpose: the tab is leaving for PayLink, and a button
+            // that springs back to life first invites one more booking.
             window.location.href = String(json.data.payment_url);
-            return;
+            return "redirecting";
           }
           // No payment URL means PayLink refused the request — never claim success.
           console.error("PayLink did not return a payment URL.", (json.data && json.data.payment_error) || "");
           alert(dict.booking_msg_payment_failed || "We could not open the payment page. Your request was saved — please contact us to complete the payment.");
         };
 
-        checkAvailability().then((result) => {
-          if (result && result.available === false) {
-            alert("Selected dates are not available.");
-            return;
-          }
-          submitBooking();
-        });
+        setBookingSubmitBusy(submitButton, true);
+
+        checkAvailability()
+          .then((result) => {
+            if (result && result.available === false) {
+              alert("Selected dates are not available.");
+              return null;
+            }
+            return submitBooking();
+          })
+          .catch((err) => {
+            console.error("Booking request failed.", err);
+            alert(dict.booking_msg_payment_failed || "We could not open the payment page. Please try again.");
+            return null;
+          })
+          .then((outcome) => {
+            if (outcome !== "redirecting") {
+              setBookingSubmitBusy(submitButton, false);
+            }
+          });
       });
     });
   }
