@@ -312,6 +312,10 @@ function dilijanvillas_cancel_expired_payment_holds()
         update_post_meta($booking_id, '_dv_status', 'cancelled');
         update_post_meta($booking_id, '_dv_cancelled_at', gmdate('c'));
         update_post_meta($booking_id, '_dv_cancel_reason', 'payment_hold_expired');
+
+        // Take the PayLink page down with the booking: expirationDate alone does
+        // not stop it accepting money, so close the request outright.
+        dilijanvillas_paylink_am_deactivate_request($booking_id);
         $cancelled++;
     }
 
@@ -1745,6 +1749,100 @@ function dilijanvillas_paylink_am_register_payment_redirect($booking_id, $amount
 }
 
 /**
+ * Close a PayLink payment request so its hosted page can no longer be paid.
+ *
+ * expirationDate is accepted by the Integration API (register returns 200) but is
+ * not enforced on the hosted payment page — the link stays payable past the
+ * deadline. So an abandoned checkout is closed for real here instead: PUT
+ * /api/request/modify with isActive:false (and isArchived:true) flips the request
+ * off. Without this, the guest — or anyone holding the link — could still pay
+ * after the nights went back on sale, landing money on dates someone else may
+ * have bought since.
+ *
+ * Idempotent: the requestId and a "_dv_paylink_deactivated_at" marker keep the
+ * five-minute cron sweep from re-calling the API once a link is already closed.
+ *
+ * @param int $booking_id Booking CPT ID.
+ * @return bool True when PayLink confirmed the request is inactive.
+ */
+function dilijanvillas_paylink_am_deactivate_request($booking_id)
+{
+    $booking_id = (int) $booking_id;
+    $request_id = trim((string) get_post_meta($booking_id, '_dv_paylink_request_id', true));
+
+    // No registered request (non-Armenian mode, or the link build failed) — nothing to close.
+    if ($request_id === '') {
+        return false;
+    }
+
+    // Already closed once — don't hammer the API on every sweep.
+    if (trim((string) get_post_meta($booking_id, '_dv_paylink_deactivated_at', true)) !== '') {
+        return true;
+    }
+
+    $settings = dilijanvillas_get_booking_settings();
+    $api_root = dilijanvillas_paylink_am_normalize_root((string) $settings['paylink_am_api_base']);
+    $jwt = dilijanvillas_paylink_am_get_bearer_token($settings);
+    if ($api_root === '' || $jwt === '') {
+        return false;
+    }
+
+    $request_type = trim((string) ($settings['paylink_am_request_type'] ?? 'Booking'));
+    if ($request_type === '') {
+        $request_type = 'Booking';
+    }
+
+    // ModifyRequest requires requestId, requestType, allowAnonymous and isActive.
+    $body = array(
+        'requestId' => $request_id,
+        'requestType' => $request_type,
+        'allowAnonymous' => true,
+        'isActive' => false,
+        'isArchived' => true,
+    );
+
+    $modify_url = $api_root . '/api/request/modify';
+    $put_modify = static function ($token) use ($modify_url, $body) {
+        return wp_remote_request(
+            $modify_url,
+            array(
+                'method' => 'PUT',
+                'timeout' => 25,
+                'headers' => array(
+                    'Content-Type' => 'application/json',
+                    'Accept' => 'application/json',
+                    'Authorization' => 'Bearer ' . $token,
+                ),
+                'body' => wp_json_encode($body),
+            )
+        );
+    };
+
+    $response = $put_modify($jwt);
+
+    // A cached token can lapse mid-flight; re-authorize once, same as register does.
+    if (!is_wp_error($response) && in_array((int) wp_remote_retrieve_response_code($response), array(401, 403), true)) {
+        $jwt_retry = dilijanvillas_paylink_am_get_bearer_token($settings, true);
+        if ($jwt_retry !== '') {
+            $response = $put_modify($jwt_retry);
+        }
+    }
+
+    $code = is_wp_error($response) ? 0 : (int) wp_remote_retrieve_response_code($response);
+    if ($code >= 200 && $code < 300) {
+        update_post_meta($booking_id, '_dv_paylink_deactivated_at', gmdate('c'));
+        dilijanvillas_paylink_log('modify', 'ok', array('endpoint' => $modify_url, 'status' => $code, 'booking_id' => $booking_id));
+
+        return true;
+    }
+
+    list($status, $message) = dilijanvillas_paylink_describe_response($response);
+    dilijanvillas_paylink_log('modify', 'error', array('endpoint' => $modify_url, 'status' => $status, 'message' => $message, 'booking_id' => $booking_id));
+
+    return false;
+}
+
+/**
  * Query Armenian Integration API payments for request UUID (GET /api/payment/{requestId}).
  *
  * @param array<string,mixed> $settings Booking settings row.
@@ -3078,7 +3176,15 @@ function dilijanvillas_save_booking_metabox($post_id)
     $manual_total = isset($_POST['dv_booking_total']) ? max(0, (float) $_POST['dv_booking_total']) : 0;
     $manual_currency = isset($_POST['dv_booking_currency']) ? sanitize_text_field((string) $_POST['dv_booking_currency']) : '';
 
+    $previous_status = (string) get_post_meta($post_id, '_dv_status', true);
     update_post_meta($post_id, '_dv_status', $status);
+
+    // Cancelling by hand closes the PayLink link too, so a cancelled booking can
+    // never still be paid — the same thing the cron sweep does for expired holds.
+    if ($status === 'cancelled' && $previous_status !== 'cancelled') {
+        dilijanvillas_paylink_am_deactivate_request($post_id);
+    }
+
     update_post_meta($post_id, '_dv_accommodation_id', $accommodation_id);
     update_post_meta($post_id, '_dv_guests', $guests);
     update_post_meta($post_id, '_dv_has_children', $has_children);
