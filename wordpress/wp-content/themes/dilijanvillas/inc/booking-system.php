@@ -297,8 +297,19 @@ function dilijanvillas_cancel_expired_payment_holds()
             continue;
         }
 
-        // Last chance to notice a payment that landed without the guest
-        // returning to the site. If it settles, it is now "paid", not expired.
+        // Close the PayLink link FIRST and proceed only once PayLink confirms it
+        // is inactive. expirationDate alone does not stop the page taking money,
+        // so the request is deactivated outright. If that cannot be confirmed the
+        // booking is left on payment_pending — its dates stay blocked and the next
+        // sweep retries — because the nights must never reopen while the link could
+        // still be paid. (No registered link counts as already closed.)
+        if (!dilijanvillas_paylink_am_deactivate_request($booking_id)) {
+            continue;
+        }
+
+        // The link is now closed. Last chance to notice a payment that landed
+        // just before it closed (or without the guest returning to the site): if
+        // it settled, the booking is "paid" now, not expired.
         if (dilijanvillas_paylink_am_sync_booking_status($booking_id, '')) {
             continue;
         }
@@ -309,13 +320,10 @@ function dilijanvillas_cancel_expired_payment_holds()
             continue;
         }
 
+        // Link confirmed dead, still unpaid — only now free the dates.
         update_post_meta($booking_id, '_dv_status', 'cancelled');
         update_post_meta($booking_id, '_dv_cancelled_at', gmdate('c'));
         update_post_meta($booking_id, '_dv_cancel_reason', 'payment_hold_expired');
-
-        // Take the PayLink page down with the booking: expirationDate alone does
-        // not stop it accepting money, so close the request outright.
-        dilijanvillas_paylink_am_deactivate_request($booking_id);
         $cancelled++;
     }
 
@@ -1797,16 +1805,20 @@ function dilijanvillas_paylink_am_register_payment_redirect($booking_id, $amount
  * five-minute cron sweep from re-calling the API once a link is already closed.
  *
  * @param int $booking_id Booking CPT ID.
- * @return bool True when PayLink confirmed the request is inactive.
+ * @return bool True when the link is confirmed closed (deactivated now, already
+ *              deactivated, or never registered); false when PayLink would not
+ *              confirm it — callers must then NOT free the dates yet.
  */
 function dilijanvillas_paylink_am_deactivate_request($booking_id)
 {
     $booking_id = (int) $booking_id;
     $request_id = trim((string) get_post_meta($booking_id, '_dv_paylink_request_id', true));
 
-    // No registered request (non-Armenian mode, or the link build failed) — nothing to close.
+    // No registered request (non-Armenian mode, or the link build failed) means
+    // there is no payable link, so the "cannot be paid" guarantee already holds —
+    // report closed so callers may safely proceed to cancel.
     if ($request_id === '') {
-        return false;
+        return true;
     }
 
     // Already closed once — don't hammer the API on every sweep.
@@ -3211,14 +3223,19 @@ function dilijanvillas_save_booking_metabox($post_id)
     $manual_currency = isset($_POST['dv_booking_currency']) ? sanitize_text_field((string) $_POST['dv_booking_currency']) : '';
 
     $previous_status = (string) get_post_meta($post_id, '_dv_status', true);
-    update_post_meta($post_id, '_dv_status', $status);
 
-    // Cancelling by hand closes the PayLink link too, so a cancelled booking can
-    // never still be paid — the same thing the cron sweep does for expired holds.
-    if ($status === 'cancelled' && $previous_status !== 'cancelled') {
-        dilijanvillas_paylink_am_deactivate_request($post_id);
+    // Cancelling frees the dates, so close the PayLink link FIRST and accept the
+    // cancellation only once PayLink confirms the link is dead. If it will not
+    // confirm, refuse the change and keep the previous status, so the dates stay
+    // blocked — the nights must never reopen while the link could still be paid.
+    // The admin is told why via an admin notice and can retry.
+    if ($status === 'cancelled' && $previous_status !== 'cancelled'
+        && !dilijanvillas_paylink_am_deactivate_request($post_id)) {
+        set_transient('dilijanvillas_cancel_blocked_' . get_current_user_id(), (int) $post_id, MINUTE_IN_SECONDS);
+        $status = $previous_status !== '' ? $previous_status : 'payment_pending';
     }
 
+    update_post_meta($post_id, '_dv_status', $status);
     update_post_meta($post_id, '_dv_accommodation_id', $accommodation_id);
     update_post_meta($post_id, '_dv_guests', $guests);
     update_post_meta($post_id, '_dv_has_children', $has_children);
@@ -3275,6 +3292,33 @@ function dilijanvillas_save_booking_metabox($post_id)
     }
 }
 add_action('save_post_dv_booking', 'dilijanvillas_save_booking_metabox');
+
+/**
+ * Tell the admin when a manual cancellation was refused because the PayLink link
+ * could not be confirmed closed — the booking was deliberately left as it was so
+ * its dates keep blocking, and the cancellation can be retried.
+ */
+function dilijanvillas_booking_cancel_blocked_notice()
+{
+    $key = 'dilijanvillas_cancel_blocked_' . get_current_user_id();
+    $blocked_id = (int) get_transient($key);
+    if ($blocked_id <= 0) {
+        return;
+    }
+    delete_transient($key);
+
+    printf(
+        '<div class="notice notice-error is-dismissible"><p>%s</p></div>',
+        esc_html(
+            sprintf(
+                /* translators: %d: booking ID */
+                __('Booking #%d was NOT cancelled: PayLink would not confirm the payment link is closed, so the dates stay blocked to prevent payment on reopened nights. Check PayLink diagnostics and try again.', 'dilijanvillas'),
+                $blocked_id
+            )
+        )
+    );
+}
+add_action('admin_notices', 'dilijanvillas_booking_cancel_blocked_notice');
 
 /**
  * Save dv_unavailable metabox values.
