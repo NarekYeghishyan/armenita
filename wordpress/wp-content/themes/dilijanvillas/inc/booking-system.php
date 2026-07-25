@@ -324,6 +324,36 @@ function dilijanvillas_cancel_expired_payment_holds()
 add_action('dilijanvillas_expire_payment_holds', 'dilijanvillas_cancel_expired_payment_holds');
 
 /**
+ * Run the expired-hold sweep on ordinary traffic, not only on WP-Cron.
+ *
+ * WP-Cron fires only when the site is hit, and a quiet site — or one with
+ * DISABLE_WP_CRON set — can leave the five-minute event unfired for hours. The
+ * dates free themselves regardless (availability is recomputed live), but the
+ * booking stays stuck on "payment_pending" until the sweep actually runs, so the
+ * Bookings list lies. Piggy-backing on normal requests keeps the status honest;
+ * a one-minute transient lock means only the first hit in each minute pays the
+ * cost, and the sweep is a cheap query whenever nothing has actually expired.
+ *
+ * @return void
+ */
+function dilijanvillas_maybe_sweep_payment_holds()
+{
+    if (dilijanvillas_get_payment_hold_minutes() <= 0) {
+        return;
+    }
+    if (get_transient('dilijanvillas_hold_sweep_lock')) {
+        return;
+    }
+    set_transient('dilijanvillas_hold_sweep_lock', 1, MINUTE_IN_SECONDS);
+
+    dilijanvillas_cancel_expired_payment_holds();
+}
+// Admin page loads (so the Bookings list is correct the moment it is opened) and
+// front-end views (so statuses catch up even with no admin around) both nudge it.
+add_action('admin_init', 'dilijanvillas_maybe_sweep_payment_holds');
+add_action('template_redirect', 'dilijanvillas_maybe_sweep_payment_holds');
+
+/**
  * Add the recurring interval used to sweep expired checkouts.
  *
  * WordPress ships nothing more frequent than hourly, but the hold is counted in
@@ -837,9 +867,13 @@ function dilijanvillas_get_blocked_ranges($accommodation_id)
         $is_hold = false;
 
         if (!in_array($status, $booking_statuses, true)) {
-            // Not paid yet — the only reason to keep these nights is a guest who
-            // is on the payment page right now. That hold expires on its own.
-            if ($status !== 'payment_pending' || !dilijanvillas_booking_payment_hold_is_active((int) $booking_id)) {
+            // Not confirmed/paid — the only other state that holds nights is a
+            // checkout in progress. It keeps them until the booking is actually
+            // cancelled (which also closes the PayLink link), so the dates never
+            // reopen while a live link could still take money for them. The hold
+            // clock no longer frees the dates; it only tells the sweep when this
+            // booking is due to be cancelled.
+            if ($status !== 'payment_pending') {
                 continue;
             }
 
