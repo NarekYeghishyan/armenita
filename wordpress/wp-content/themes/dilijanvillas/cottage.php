@@ -188,8 +188,28 @@ Description: This part is optional, but helpful for describing the Post Template
                 endif;
                 ?>
               </ul>
-              <div class="stay-feature__more">
-                <?php
+              <?php
+                $has_icon_text_items = static function ($items) {
+                  if (!is_array($items)) {
+                    return false;
+                  }
+
+                  foreach ($items as $item) {
+                    $item_text = '';
+                    if (is_array($item)) {
+                      $item_text = isset($item['text']) ? trim((string) $item['text']) : '';
+                    } elseif (is_string($item)) {
+                      $item_text = trim($item);
+                    }
+
+                    if ($item_text !== '') {
+                      return true;
+                    }
+                  }
+
+                  return false;
+                };
+
                 $render_icon_text_items = static function ($items) {
                   if (!is_array($items)) {
                     return;
@@ -241,39 +261,55 @@ Description: This part is optional, but helpful for describing the Post Template
                     <?php
                   }
                 };
+
+                $whats_inside_items = get_field('whats_inside');
+                $amenities_items = get_field('amenits');
+                if (!is_array($amenities_items)) {
+                  $amenities_items = get_field('amenities');
+                }
+                $room_features_items = get_field('root_features');
+                if (!is_array($room_features_items)) {
+                  $room_features_items = get_field('room_features');
+                }
+                $room_types_items = get_field('room_types');
+
+                $has_whats_inside = $has_icon_text_items($whats_inside_items);
+                $has_amenities = $has_icon_text_items($amenities_items);
+                $has_room_features = $has_icon_text_items($room_features_items);
+                $has_room_types = $has_icon_text_items($room_types_items);
+                $has_more_points = $has_whats_inside || $has_amenities || $has_room_features || $has_room_types;
                 ?>
-                <h4 data-i18n="stay_section_whats_inside">What's inside</h4>
-                <ul class="stay-feature__amenities">
-                  <?php $render_icon_text_items(get_field('whats_inside')); ?>
-                </ul>
+              <?php if ($has_more_points) : ?>
+              <div class="stay-feature__more">
+                <?php if ($has_whats_inside) : ?>
+                  <h4 data-i18n="stay_section_whats_inside">What's inside</h4>
+                  <ul class="stay-feature__amenities">
+                    <?php $render_icon_text_items($whats_inside_items); ?>
+                  </ul>
+                <?php endif; ?>
 
-                <h4 data-i18n="stay_section_amenities">Amenities</h4>
-                <ul class="stay-feature__amenities">
-                  <?php
-                  $amenities_items = get_field('amenits');
-                  if (!is_array($amenities_items)) {
-                    $amenities_items = get_field('amenities');
-                  }
-                  $render_icon_text_items($amenities_items);
-                  ?>
-                </ul>
+                <?php if ($has_amenities) : ?>
+                  <h4 data-i18n="stay_section_amenities">Amenities</h4>
+                  <ul class="stay-feature__amenities">
+                    <?php $render_icon_text_items($amenities_items); ?>
+                  </ul>
+                <?php endif; ?>
 
-                <h4 data-i18n="stay_section_room_features">Room features</h4>
-                <ul class="stay-feature__amenities">
-                  <?php
-                  $room_features_items = get_field('root_features');
-                  if (!is_array($room_features_items)) {
-                    $room_features_items = get_field('room_features');
-                  }
-                  $render_icon_text_items($room_features_items);
-                  ?>
-                </ul>
+                <?php if ($has_room_features) : ?>
+                  <h4 data-i18n="stay_section_room_features">Room features</h4>
+                  <ul class="stay-feature__amenities">
+                    <?php $render_icon_text_items($room_features_items); ?>
+                  </ul>
+                <?php endif; ?>
 
-                <h4 data-i18n="stay_section_room_types">Room types</h4>
-                <ul class="stay-feature__amenities">
-                  <?php $render_icon_text_items(get_field('room_types')); ?>
-                </ul>
+                <?php if ($has_room_types) : ?>
+                  <h4 data-i18n="stay_section_room_types">Room types</h4>
+                  <ul class="stay-feature__amenities">
+                    <?php $render_icon_text_items($room_types_items); ?>
+                  </ul>
+                <?php endif; ?>
               </div>
+              <?php endif; ?>
             </div>
             <div class="stay-unit__actions">
               <form class="booking-selector booking-selector--popup-dates booking-selector--luxury" data-booking-form data-booking-nightly-usd="120">
