@@ -914,6 +914,7 @@
 
       const setPreview = (link, { markActive = true } = {}) => {
         const video = link.getAttribute("data-dropdown-video");
+        const poster = link.getAttribute("data-dropdown-poster");
         const image = link.getAttribute("data-dropdown-image");
         const descKey = link.getAttribute("data-dropdown-desc-key");
         const descHtml = link.getAttribute("data-dropdown-desc-html");
@@ -927,6 +928,14 @@
           if (hasVideo) {
             videoEl.hidden = false;
             if (videoSourceEl.getAttribute("src") !== video) {
+              // The poster ("Background image" in the admin) has to be in place
+              // before load(), otherwise the panel flashes black while the new
+              // clip downloads.
+              if (poster) {
+                videoEl.setAttribute("poster", poster);
+              } else {
+                videoEl.removeAttribute("poster");
+              }
               videoSourceEl.setAttribute("src", video);
               syncVideoSourceMime(videoSourceEl);
               videoEl.load();

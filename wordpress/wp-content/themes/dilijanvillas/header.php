@@ -98,6 +98,7 @@
         $preview = array(
             'video' => '',
             'image' => '',
+            'poster' => '',
             'description' => '',
             'show_whatsapp' => false,
             'whatsapp_url' => '',
@@ -131,6 +132,13 @@
             $video_exts = array('mp4', 'webm', 'ogg', 'ogv', 'mov', 'm4v');
             if (in_array($ext, $video_exts, true)) {
                 $preview['video'] = $file_url;
+                /**
+                 * Пока видео качается, в превью висит пустой чёрный прямоугольник.
+                 * Постер — поле "Background image" (beground_img) той же страницы.
+                 */
+                if (function_exists('dilijanvillas_get_acf_media_url')) {
+                    $preview['poster'] = dilijanvillas_get_acf_media_url('beground_img', $page_id);
+                }
             } else {
                 $preview['image'] = $file_url;
             }
@@ -255,6 +263,15 @@
             'tours' => 'tours',
         );
 
+        /**
+         * Строки туров/ресторана живут в репитере на странице событий, своей
+         * страницы у них нет — постером для их видео служит "Background image"
+         * (beground_img) самой страницы событий.
+         */
+        $events_poster = function_exists('dilijanvillas_get_acf_media_url')
+            ? dilijanvillas_get_acf_media_url('beground_img', $source_post_id)
+            : '';
+
         $group_labels = array(
             'tours' => $tour_group_label,
             'diving_experience' => $restaurant_group_label,
@@ -335,6 +352,7 @@
                     'preview' => array(
                         'video' => $video,
                         'image' => $image,
+                        'poster' => $video !== '' ? $events_poster : '',
                         'description' => $description,
                         'show_whatsapp' => !empty($whatsapp_url),
                         'whatsapp_url' => $whatsapp_url,
@@ -611,6 +629,7 @@
               $initial_preview = array(
                   'video' => '',
                   'image' => '',
+                  'poster' => '',
                   'description' => '<p>Choose your stay by category and open the exact page directly.</p>',
                   'show_whatsapp' => false,
                   'whatsapp_url' => '',
@@ -625,6 +644,7 @@
                               $initial_preview = array(
                                   'video' => (string) $preview_data['video'],
                                   'image' => (string) $preview_data['image'],
+                                  'poster' => !empty($preview_data['poster']) ? (string) $preview_data['poster'] : '',
                                   'description' => !empty($preview_data['description']) ? (string) $preview_data['description'] : $initial_preview['description'],
                                   'show_whatsapp' => !empty($preview_data['show_whatsapp']),
                                   'whatsapp_url' => !empty($preview_data['whatsapp_url']) ? (string) $preview_data['whatsapp_url'] : '',
@@ -642,6 +662,7 @@
                       $initial_preview = array(
                           'video' => (string) $preview_data['video'],
                           'image' => (string) $preview_data['image'],
+                          'poster' => !empty($preview_data['poster']) ? (string) $preview_data['poster'] : '',
                           'description' => !empty($preview_data['description']) ? (string) $preview_data['description'] : $initial_preview['description'],
                           'show_whatsapp' => !empty($preview_data['show_whatsapp']),
                           'whatsapp_url' => !empty($preview_data['whatsapp_url']) ? (string) $preview_data['whatsapp_url'] : '',
@@ -666,7 +687,7 @@
                   </div>
                   <div class="header__dropdown-preview">
                     <?php if (!empty($initial_preview['video'])) : ?>
-                      <video class="header__dropdown-video" data-dropdown-video autoplay muted loop playsinline preload="metadata">
+                      <video class="header__dropdown-video" data-dropdown-video autoplay muted loop playsinline preload="metadata"<?php echo !empty($initial_preview['poster']) ? ' poster="' . esc_url($initial_preview['poster']) . '"' : ''; ?>>
                         <source src="<?php echo esc_url($initial_preview['video']); ?>" type="<?php echo esc_attr(dilijanvillas_get_video_mime_from_url($initial_preview['video'])); ?>" data-dropdown-video-source />
                       </video>
                     <?php else : ?>
@@ -714,6 +735,7 @@
                               href="<?php echo esc_url($group_item->url); ?>"
                               data-dropdown-link
                               <?php if (!empty($preview_data['video'])) : ?>data-dropdown-video="<?php echo esc_url($preview_data['video']); ?>"<?php endif; ?>
+                              <?php if (!empty($preview_data['poster'])) : ?>data-dropdown-poster="<?php echo esc_url($preview_data['poster']); ?>"<?php endif; ?>
                               <?php if (!empty($preview_data['image'])) : ?>data-dropdown-image="<?php echo esc_url($preview_data['image']); ?>"<?php endif; ?>
                               data-dropdown-desc-html="<?php echo esc_attr(!empty($preview_data['description']) ? $preview_data['description'] : ''); ?>"
                               data-dropdown-whatsapp="<?php echo !empty($preview_data['show_whatsapp']) ? '1' : '0'; ?>"
@@ -750,6 +772,7 @@
               $initial_preview = array(
                   'video' => '',
                   'image' => '',
+                  'poster' => '',
                   'description' => '<p>Choose a category and open the exact page directly.</p>',
                   'show_whatsapp' => false,
                   'whatsapp_url' => '',
@@ -764,6 +787,7 @@
                               $initial_preview = array(
                                   'video' => (string) $preview_data['video'],
                                   'image' => (string) $preview_data['image'],
+                                  'poster' => !empty($preview_data['poster']) ? (string) $preview_data['poster'] : '',
                                   'description' => !empty($preview_data['description']) ? (string) $preview_data['description'] : $initial_preview['description'],
                                   'show_whatsapp' => !empty($preview_data['show_whatsapp']),
                                   'whatsapp_url' => !empty($preview_data['whatsapp_url']) ? (string) $preview_data['whatsapp_url'] : '',
@@ -781,6 +805,7 @@
                       $initial_preview = array(
                           'video' => (string) $preview_data['video'],
                           'image' => (string) $preview_data['image'],
+                          'poster' => !empty($preview_data['poster']) ? (string) $preview_data['poster'] : '',
                           'description' => !empty($preview_data['description']) ? (string) $preview_data['description'] : $initial_preview['description'],
                           'show_whatsapp' => !empty($preview_data['show_whatsapp']),
                           'whatsapp_url' => !empty($preview_data['whatsapp_url']) ? (string) $preview_data['whatsapp_url'] : '',
@@ -805,7 +830,7 @@
                   </div>
                   <div class="header__dropdown-preview">
                     <?php if (!empty($initial_preview['video'])) : ?>
-                      <video class="header__dropdown-video" data-dropdown-video autoplay muted loop playsinline preload="metadata">
+                      <video class="header__dropdown-video" data-dropdown-video autoplay muted loop playsinline preload="metadata"<?php echo !empty($initial_preview['poster']) ? ' poster="' . esc_url($initial_preview['poster']) . '"' : ''; ?>>
                         <source src="<?php echo esc_url($initial_preview['video']); ?>" type="<?php echo esc_attr(dilijanvillas_get_video_mime_from_url($initial_preview['video'])); ?>" data-dropdown-video-source />
                       </video>
                     <?php else : ?>
@@ -853,6 +878,7 @@
                               href="<?php echo esc_url($group_item->url); ?>"
                               data-dropdown-link
                               <?php if (!empty($preview_data['video'])) : ?>data-dropdown-video="<?php echo esc_url($preview_data['video']); ?>"<?php endif; ?>
+                              <?php if (!empty($preview_data['poster'])) : ?>data-dropdown-poster="<?php echo esc_url($preview_data['poster']); ?>"<?php endif; ?>
                               <?php if (!empty($preview_data['image'])) : ?>data-dropdown-image="<?php echo esc_url($preview_data['image']); ?>"<?php endif; ?>
                               data-dropdown-desc-html="<?php echo esc_attr(!empty($preview_data['description']) ? $preview_data['description'] : ''); ?>"
                               data-dropdown-whatsapp="<?php echo !empty($preview_data['show_whatsapp']) ? '1' : '0'; ?>"
