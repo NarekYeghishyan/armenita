@@ -1016,6 +1016,53 @@ function dilijanvillas_check_booking_availability($accommodation_id, $start_date
 }
 
 /**
+ * Find an existing blocked range that a booking's dates would collide with.
+ *
+ * Same idea as dilijanvillas_check_booking_availability, but it ignores the
+ * booking being saved so editing a live booking never conflicts with itself,
+ * and it hands back the offending range so the caller can explain the clash.
+ *
+ * @param int    $accommodation_id    Accommodation page ID.
+ * @param string $checkin             Check-in (Y-m-d).
+ * @param string $checkout            Check-out (Y-m-d).
+ * @param int    $exclude_booking_id  Booking to leave out of the comparison.
+ * @return array<string,mixed>|null   The conflicting range, or null when free.
+ */
+function dilijanvillas_find_booking_date_conflict($accommodation_id, $checkin, $checkout, $exclude_booking_id = 0)
+{
+    $checkin = (string) $checkin;
+    $checkout = (string) $checkout;
+    if (!dilijanvillas_is_valid_booking_date($checkin) || !dilijanvillas_is_valid_booking_date($checkout)) {
+        return null;
+    }
+
+    $exclude_booking_id = (int) $exclude_booking_id;
+    foreach (dilijanvillas_get_blocked_ranges((int) $accommodation_id) as $range) {
+        $source = isset($range['source']) ? (string) $range['source'] : '';
+        $source_id = isset($range['sourceId']) ? (int) $range['sourceId'] : 0;
+
+        // The booking being edited is already in the blocked list once it holds
+        // dates — skip it so it does not report a clash with its own nights.
+        if ($exclude_booking_id > 0
+            && $source_id === $exclude_booking_id
+            && in_array($source, array('booking', 'payment_hold'), true)) {
+            continue;
+        }
+
+        $start = isset($range['start']) ? (string) $range['start'] : '';
+        $end = isset($range['end']) ? (string) $range['end'] : '';
+        if ($start === '' || $end === '') {
+            continue;
+        }
+        if (dilijanvillas_booking_ranges_overlap($checkin, $checkout, $start, $end)) {
+            return $range;
+        }
+    }
+
+    return null;
+}
+
+/**
  * Calculate booking price.
  *
  * @param string $start_date Start date.
@@ -2846,10 +2893,10 @@ function dilijanvillas_render_booking_details_metabox($post)
         </td>
       </tr>
       <tr>
-        <th scope="row"><label for="dv_booking_accommodation"><?php esc_html_e('Accommodation', 'dilijanvillas'); ?></label></th>
+        <th scope="row"><label for="dv_booking_accommodation"><?php esc_html_e('Accommodation', 'dilijanvillas'); ?> <span class="description">*</span></label></th>
         <td>
-          <select id="dv_booking_accommodation" name="dv_booking_accommodation">
-            <option value="0"><?php esc_html_e('Select accommodation', 'dilijanvillas'); ?></option>
+          <select id="dv_booking_accommodation" name="dv_booking_accommodation" required>
+            <option value=""><?php esc_html_e('Select accommodation', 'dilijanvillas'); ?></option>
             <?php foreach ($accommodations as $accommodation) : ?>
               <?php $option_id = isset($accommodation['id']) ? (int) $accommodation['id'] : 0; ?>
               <option value="<?php echo esc_attr((string) $option_id); ?>" <?php selected($accommodation_id, $option_id); ?>>
@@ -2860,12 +2907,20 @@ function dilijanvillas_render_booking_details_metabox($post)
         </td>
       </tr>
       <tr>
-        <th scope="row"><label for="dv_booking_checkin"><?php esc_html_e('Check-in', 'dilijanvillas'); ?></label></th>
-        <td><input id="dv_booking_checkin" type="date" name="dv_booking_checkin" value="<?php echo esc_attr($checkin); ?>" /></td>
-      </tr>
-      <tr>
-        <th scope="row"><label for="dv_booking_checkout"><?php esc_html_e('Check-out', 'dilijanvillas'); ?></label></th>
-        <td><input id="dv_booking_checkout" type="date" name="dv_booking_checkout" value="<?php echo esc_attr($checkout); ?>" /></td>
+        <th scope="row"><label for="dv_booking_dates"><?php esc_html_e('Check-in — Check-out', 'dilijanvillas'); ?> <span class="description">*</span></label></th>
+        <td>
+          <?php // One range picker drives the two hidden values below. Without flatpickr the native date pair stays visible and usable. ?>
+          <input id="dv_booking_dates" type="text" class="regular-text" autocomplete="off" placeholder="<?php echo esc_attr(__('Select stay dates', 'dilijanvillas')); ?>" style="display:none;" />
+          <span class="dv-booking-native-dates">
+            <label style="margin-right:12px;"><?php esc_html_e('Check-in', 'dilijanvillas'); ?>
+              <input id="dv_booking_checkin" type="date" name="dv_booking_checkin" value="<?php echo esc_attr($checkin); ?>" required />
+            </label>
+            <label><?php esc_html_e('Check-out', 'dilijanvillas'); ?>
+              <input id="dv_booking_checkout" type="date" name="dv_booking_checkout" value="<?php echo esc_attr($checkout); ?>" required />
+            </label>
+          </span>
+          <p class="description"><?php esc_html_e('Accommodation, check-in and check-out are required. Without them the booking blocks no dates and is kept as a draft.', 'dilijanvillas'); ?></p>
+        </td>
       </tr>
       <tr>
         <th scope="row"><label for="dv_booking_guests"><?php esc_html_e('Guests', 'dilijanvillas'); ?></label></th>
@@ -3235,6 +3290,36 @@ function dilijanvillas_save_booking_metabox($post_id)
         $status = $previous_status !== '' ? $previous_status : 'payment_pending';
     }
 
+    // Keep the admin in step with live availability: a booking may only take
+    // nights off the calendar (confirmed / paid / payment_pending) when those
+    // nights are not already held by another booking or a manual unavailable
+    // period for the same unit — otherwise two guests would own the same dates.
+    // The dates entered are kept, but the status is dropped to "pending" (which
+    // blocks nothing) and the admin is told which range it clashed with. A
+    // booking that is not trying to occupy dates is left untouched.
+    $occupies_dates = in_array($status, dilijanvillas_get_blocking_booking_statuses(), true)
+        || $status === 'payment_pending';
+    if ($occupies_dates
+        && $accommodation_id > 0
+        && dilijanvillas_is_valid_booking_date($checkin)
+        && dilijanvillas_is_valid_booking_date($checkout)
+        && $checkout >= $checkin) {
+        $conflict = dilijanvillas_find_booking_date_conflict($accommodation_id, $checkin, $checkout, (int) $post_id);
+        if ($conflict !== null) {
+            $status = 'pending';
+            set_transient(
+                'dilijanvillas_booking_conflict_' . get_current_user_id(),
+                array(
+                    'booking' => (int) $post_id,
+                    'start' => (string) ($conflict['start'] ?? ''),
+                    'end' => (string) ($conflict['end'] ?? ''),
+                    'source' => (string) ($conflict['source'] ?? ''),
+                ),
+                MINUTE_IN_SECONDS
+            );
+        }
+    }
+
     update_post_meta($post_id, '_dv_status', $status);
     update_post_meta($post_id, '_dv_accommodation_id', $accommodation_id);
     update_post_meta($post_id, '_dv_guests', $guests);
@@ -3290,8 +3375,296 @@ function dilijanvillas_save_booking_metabox($post_id)
         );
         add_action('save_post_dv_booking', 'dilijanvillas_save_booking_metabox');
     }
+
+    // A booking needs an accommodation and a valid date range to hold nights,
+    // price a stay or reach the guest. Saved without them it is kept as a draft
+    // so it never sits "published" doing nothing (see admin notice below).
+    dilijanvillas_guard_booking_required($post_id, $accommodation_id, $checkin, $checkout);
 }
 add_action('save_post_dv_booking', 'dilijanvillas_save_booking_metabox');
+
+/**
+ * Whether a booking carries the fields it needs to be published.
+ *
+ * @param int    $accommodation_id Submitted accommodation ID (0 when unset).
+ * @param string $checkin          Submitted check-in date (Y-m-d).
+ * @param string $checkout         Submitted check-out date (Y-m-d).
+ * @return bool
+ */
+function dilijanvillas_booking_required_fields_present($accommodation_id, $checkin, $checkout)
+{
+    return (int) $accommodation_id > 0
+        && dilijanvillas_is_valid_booking_date($checkin)
+        && dilijanvillas_is_valid_booking_date($checkout)
+        && $checkout >= $checkin;
+}
+
+/**
+ * Keep a booking without its essential fields out of publish.
+ *
+ * Accommodation, check-in and check-out are what make a booking a booking: with
+ * any of them missing it holds no nights, prices nothing and cannot reach the
+ * guest, so a published entry would just sit there doing nothing. It is pushed
+ * back to draft and the reason is stored for an admin notice. Mirrors
+ * dilijanvillas_guard_period_dates for the period post types.
+ *
+ * @param int    $post_id          Booking post ID.
+ * @param int    $accommodation_id Submitted accommodation ID (0 when unset).
+ * @param string $checkin          Submitted check-in date (Y-m-d).
+ * @param string $checkout         Submitted check-out date (Y-m-d).
+ * @return bool True when every required field is present.
+ */
+function dilijanvillas_guard_booking_required($post_id, $accommodation_id, $checkin, $checkout)
+{
+    if (dilijanvillas_booking_required_fields_present($accommodation_id, $checkin, $checkout)) {
+        delete_post_meta($post_id, '_dv_booking_required_error');
+
+        return true;
+    }
+
+    $missing = array();
+    if ((int) $accommodation_id <= 0) {
+        $missing[] = __('an accommodation', 'dilijanvillas');
+    }
+    if (!dilijanvillas_is_valid_booking_date($checkin)) {
+        $missing[] = __('a check-in date', 'dilijanvillas');
+    }
+    if (!dilijanvillas_is_valid_booking_date($checkout)) {
+        $missing[] = __('a check-out date', 'dilijanvillas');
+    }
+
+    if (empty($missing)) {
+        // Every field is present, so the only way here is a backwards range.
+        $message = __('Check-out cannot be earlier than check-in — booking saved as draft.', 'dilijanvillas');
+    } else {
+        $message = sprintf(
+            /* translators: %s: comma-separated list of the missing required fields */
+            __('A booking needs %s — saved as draft.', 'dilijanvillas'),
+            implode(', ', $missing)
+        );
+    }
+
+    update_post_meta($post_id, '_dv_booking_required_error', $message);
+
+    $post = get_post($post_id);
+    if ($post && $post->post_status === 'publish') {
+        remove_action('save_post_dv_booking', 'dilijanvillas_save_booking_metabox');
+        wp_update_post(
+            array(
+                'ID' => $post_id,
+                'post_status' => 'draft',
+            )
+        );
+        add_action('save_post_dv_booking', 'dilijanvillas_save_booking_metabox');
+    }
+
+    return false;
+}
+
+/**
+ * Show why a booking was forced back to draft.
+ */
+function dilijanvillas_booking_required_admin_notice()
+{
+    $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+    if (!$screen || $screen->post_type !== 'dv_booking') {
+        return;
+    }
+
+    $post_id = isset($_GET['post']) ? (int) $_GET['post'] : 0;
+    if ($post_id <= 0) {
+        return;
+    }
+
+    $message = (string) get_post_meta($post_id, '_dv_booking_required_error', true);
+    if ($message === '') {
+        return;
+    }
+
+    printf('<div class="notice notice-error"><p>%s</p></div>', esc_html($message));
+}
+add_action('admin_notices', 'dilijanvillas_booking_required_admin_notice');
+
+/**
+ * Load flatpickr on the Booking edit screen so Check-in / Check-out show which
+ * days are free and which are already taken for the chosen accommodation.
+ *
+ * The busy days come from the same source the public booking form uses
+ * (dilijanvillas_get_blocked_ranges over admin-ajax), so the admin sees exactly
+ * what a guest would: confirmed / paid bookings, live payment holds and manual
+ * unavailable periods. The booking being edited is excluded client-side so it
+ * never greys out its own nights.
+ *
+ * @param string $hook Current admin page.
+ * @return void
+ */
+function dilijanvillas_enqueue_booking_admin_calendar($hook)
+{
+    if ($hook !== 'post.php' && $hook !== 'post-new.php') {
+        return;
+    }
+    $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+    if (!$screen || $screen->post_type !== 'dv_booking') {
+        return;
+    }
+
+    // Same flatpickr build the front-end booking form loads.
+    wp_enqueue_style('flatpickr', 'https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css', array(), '4.6.13');
+    wp_enqueue_script('flatpickr', 'https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js', array(), '4.6.13', true);
+
+    wp_localize_script(
+        'flatpickr',
+        'DV_BOOKING_ADMIN',
+        array(
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('dilijanvillas_booking_nonce'),
+            'bookingId' => isset($_GET['post']) ? (int) $_GET['post'] : 0,
+        )
+    );
+
+    wp_add_inline_style('flatpickr', dilijanvillas_booking_admin_calendar_css());
+    wp_add_inline_script('flatpickr', dilijanvillas_booking_admin_calendar_js());
+}
+add_action('admin_enqueue_scripts', 'dilijanvillas_enqueue_booking_admin_calendar');
+
+/**
+ * Styles marking already-taken days on the admin booking calendar.
+ *
+ * @return string
+ */
+function dilijanvillas_booking_admin_calendar_css()
+{
+    return '.flatpickr-day.dv-admin-day-blocked,'
+        . '.flatpickr-day.dv-admin-day-blocked:hover{'
+        . 'background:#fbe9e7;color:#b32d2e;text-decoration:line-through;border-color:transparent;}'
+        . '#dv_booking_dates{max-width:22em;}'
+        . '#dv_booking_checkin,#dv_booking_checkout{max-width:12em;}';
+}
+
+/**
+ * Inline script turning the two date fields into flatpickr calendars that grey
+ * out and red-mark days already blocked for the selected accommodation.
+ *
+ * Reads config from window.DV_BOOKING_ADMIN. Degrades to the native date inputs
+ * when flatpickr is unavailable (e.g. the CDN is blocked), so the fields keep
+ * working either way.
+ *
+ * @return string
+ */
+function dilijanvillas_booking_admin_calendar_js()
+{
+    return <<<'JS'
+(function () {
+  var cfg = window.DV_BOOKING_ADMIN || {};
+  var ajaxUrl = cfg.ajaxUrl || window.ajaxurl || '';
+  var nonce = cfg.nonce || '';
+  var bookingId = parseInt(cfg.bookingId || 0, 10) || 0;
+
+  function ready(fn) {
+    if (document.readyState !== 'loading') { fn(); }
+    else { document.addEventListener('DOMContentLoaded', fn); }
+  }
+
+  ready(function () {
+    var accSelect = document.getElementById('dv_booking_accommodation');
+    var rangeInput = document.getElementById('dv_booking_dates');
+    var checkin = document.getElementById('dv_booking_checkin');
+    var checkout = document.getElementById('dv_booking_checkout');
+    var nativeWrap = document.querySelector('.dv-booking-native-dates');
+    // Without flatpickr the native check-in / check-out pair stays visible and usable.
+    if (!rangeInput || !checkin || !checkout || typeof window.flatpickr !== 'function') { return; }
+
+    // One input drives the two hidden values: reveal the range field, retire the
+    // native pair, and move the required flag onto the visible control (a hidden
+    // required input would block submit without a focusable field to point at).
+    rangeInput.style.display = '';
+    if (nativeWrap) { nativeWrap.style.display = 'none'; }
+    checkin.removeAttribute('required');
+    checkout.removeAttribute('required');
+    rangeInput.setAttribute('required', 'required');
+
+    var blocked = [];
+    var picker = null;
+
+    function pad(n) { return (n < 10 ? '0' : '') + n; }
+    function ymd(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+
+    function isBlocked(s) {
+      if (!s) { return false; }
+      for (var i = 0; i < blocked.length; i++) {
+        if (blocked[i].start && blocked[i].end && s >= blocked[i].start && s <= blocked[i].end) { return true; }
+      }
+      return false;
+    }
+
+    function markDay(el) {
+      if (!el || !el.dateObj) { return; }
+      if (isBlocked(ymd(el.dateObj))) { el.classList.add('dv-admin-day-blocked'); }
+      else { el.classList.remove('dv-admin-day-blocked'); }
+    }
+
+    function markAll(fp) {
+      if (fp && fp.days) { Array.prototype.forEach.call(fp.days.children, markDay); }
+    }
+
+    function applyDisable() {
+      var spec = blocked.map(function (r) { return { from: r.start, to: r.end }; });
+      if (picker) { picker.set('disable', spec); }
+    }
+
+    function fetchRanges() {
+      var accId = accSelect ? String(accSelect.value || '').trim() : '';
+      if (!ajaxUrl || !nonce || !accId) { blocked = []; applyDisable(); return; }
+      var body = new URLSearchParams();
+      body.set('action', 'dilijanvillas_get_blocked_ranges');
+      body.set('nonce', nonce);
+      body.set('accommodation_id', accId);
+      body.set('_', String(Date.now()));
+      fetch(ajaxUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+        credentials: 'same-origin',
+        body: body.toString()
+      }).then(function (r) { return r.json(); }).then(function (json) {
+        var ranges = (json && json.success && json.data && Array.isArray(json.data.ranges)) ? json.data.ranges : [];
+        blocked = ranges.filter(function (r) {
+          var src = String(r.source || '');
+          var sid = parseInt(r.sourceId || 0, 10) || 0;
+          // Never grey out the booking currently being edited against itself.
+          if (bookingId > 0 && sid === bookingId && (src === 'booking' || src === 'payment_hold')) { return false; }
+          return true;
+        }).map(function (r) {
+          return { start: String(r.start || '').trim(), end: String(r.end || '').trim() };
+        }).filter(function (r) { return r.start && r.end && r.end >= r.start; });
+      }).catch(function () { blocked = []; }).then(function () { applyDisable(); });
+    }
+
+    var hadBoth = checkin.value && checkout.value;
+    // Past days are not bookable. Keep an already-set past check-in selectable so
+    // editing an older booking still shows its dates instead of clearing them.
+    var todayStr = ymd(new Date());
+    var minDate = (checkin.value && checkin.value < todayStr) ? checkin.value : todayStr;
+    picker = window.flatpickr(rangeInput, {
+      mode: 'range',
+      dateFormat: 'Y-m-d',
+      disableMobile: true,
+      minDate: minDate,
+      defaultDate: hadBoth ? [checkin.value, checkout.value] : (checkin.value ? [checkin.value] : []),
+      onDayCreate: function (a, b, c, el) { markDay(el); },
+      onMonthChange: function (a, b, fp) { markAll(fp); },
+      onYearChange: function (a, b, fp) { markAll(fp); },
+      onChange: function (dates, str, fp) {
+        checkin.value = dates.length >= 1 ? fp.formatDate(dates[0], 'Y-m-d') : '';
+        checkout.value = dates.length >= 2 ? fp.formatDate(dates[1], 'Y-m-d') : '';
+      }
+    });
+
+    if (accSelect) { accSelect.addEventListener('change', fetchRanges); }
+    fetchRanges();
+  });
+})();
+JS;
+}
 
 /**
  * Tell the admin when a manual cancellation was refused because the PayLink link
@@ -3319,6 +3692,44 @@ function dilijanvillas_booking_cancel_blocked_notice()
     );
 }
 add_action('admin_notices', 'dilijanvillas_booking_cancel_blocked_notice');
+
+/**
+ * Tell the admin when a booking was kept off the calendar because its dates
+ * overlap a range that is already blocked. The booking was saved as "pending"
+ * (which holds no nights) instead of confirmed/paid, so no double booking is
+ * created; the admin can pick free dates and set the status again.
+ */
+function dilijanvillas_booking_conflict_notice()
+{
+    $key = 'dilijanvillas_booking_conflict_' . get_current_user_id();
+    $data = get_transient($key);
+    if (!is_array($data) || empty($data['booking'])) {
+        return;
+    }
+    delete_transient($key);
+
+    $start = isset($data['start']) ? (string) $data['start'] : '';
+    $end = isset($data['end']) ? (string) $data['end'] : '';
+    $source = isset($data['source']) ? (string) $data['source'] : '';
+    $source_label = $source === 'manual_block'
+        ? __('a manual unavailable period', 'dilijanvillas')
+        : __('another booking', 'dilijanvillas');
+
+    printf(
+        '<div class="notice notice-error is-dismissible"><p>%s</p></div>',
+        esc_html(
+            sprintf(
+                /* translators: 1: booking ID, 2: conflicting range source, 3: range start, 4: range end */
+                __('Booking #%1$d was saved as "Pending" and does NOT hold the dates: they overlap %2$s (%3$s → %4$s) for this accommodation. Choose free dates, then set the status to Confirmed or Paid.', 'dilijanvillas'),
+                (int) $data['booking'],
+                $source_label,
+                $start !== '' ? $start : '—',
+                $end !== '' ? $end : '—'
+            )
+        )
+    );
+}
+add_action('admin_notices', 'dilijanvillas_booking_conflict_notice');
 
 /**
  * Save dv_unavailable metabox values.
