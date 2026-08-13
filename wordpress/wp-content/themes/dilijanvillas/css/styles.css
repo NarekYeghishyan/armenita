@@ -3010,7 +3010,8 @@ button,
   position: relative;
   z-index: 2;
   text-align: center;
-  padding: 7rem 1rem 5rem;
+  padding: 4rem 1rem;
+  background: rgba(0, 0, 0, 0.25);
 }
 
 .hero__content--bottom {
@@ -3038,16 +3039,18 @@ button,
 
 .hero__eyebrow {
   text-transform: uppercase;
-  letter-spacing: 0.25em;
   color: var(--accent);
-  font-size: 0.74rem;
+  line-height: 1.1;
+  margin: 1rem 0;
+  font-size: clamp(1.2rem, 4vw, 2.6rem);
+  letter-spacing: 0.02em;
 }
 
 .hero__title {
   font-family: var(--font-display);
-  font-size: clamp(2.07rem, 7.2vw, 4.5rem);
-  line-height: 1.05;
-  margin: 0.5rem 0;
+  line-height: 1.1;
+  margin: 1rem 0;
+  font-size: clamp(1.6rem, 4.5vw, 3rem);
 }
 
 .hero__subtitle {
@@ -4091,10 +4094,6 @@ body.nav-open {
   .hero__title {
     overflow-wrap: anywhere;
     word-break: break-word;
-  }
-
-  .hero__eyebrow {
-    letter-spacing: 0.14em;
   }
 
   .section__bg--about,
