@@ -29,26 +29,16 @@ if ($media_url === '') {
 if ($media_type === '' && function_exists('dilijanvillas_is_video_media')) {
     $media_type = dilijanvillas_is_video_media($media_url, $media_mime) ? 'video' : 'image';
 }
+
+/**
+ * Видео на главной слишком тяжёлое — показываем только картинку.
+ * Для видео это его постер (beground_img). Если постера нет, карточку не рисуем.
+ */
+$image_url = $media_type === 'video' ? $media_poster : $media_url;
+if ($image_url === '') {
+    return;
+}
 ?>
 <a class="events-quick__media" href="<?php echo esc_url($link); ?>">
-  <?php if ($media_type === 'video') : ?>
-    <video
-      class="events-quick__video"
-      muted
-      loop
-      playsinline
-      webkit-playsinline
-      autoplay
-      preload="none"
-      disablepictureinpicture
-      disableremoteplayback
-      aria-hidden="true"
-      <?php echo $media_poster !== '' ? 'poster="' . esc_url($media_poster) . '"' : ''; ?>
-    >
-      <?php /* data-src: JS подставит настоящий src после window.load, до этого видна картинка-постер */ ?>
-      <source data-src="<?php echo esc_url($media_url); ?>" type="<?php echo esc_attr($media_mime !== '' ? $media_mime : dilijanvillas_get_video_mime_from_url($media_url)); ?>" />
-    </video>
-  <?php else : ?>
-    <img src="<?php echo esc_url($media_url); ?>" alt="<?php echo esc_attr($alt); ?>" loading="lazy" />
-  <?php endif; ?>
+  <img src="<?php echo esc_url($image_url); ?>" alt="<?php echo esc_attr($alt); ?>" loading="lazy" />
 </a>

@@ -148,14 +148,38 @@
               };
 
               /** Постер видео — поле "Background image" (beground_img) той же страницы. */
-              $with_poster = static function ($resolved) use ($page_id) {
+              $with_poster = static function ($resolved) use ($page_id, $normalize_source) {
                 if ($resolved['type'] !== 'video') {
                   $resolved['poster'] = '';
                   return $resolved;
                 }
-                $resolved['poster'] = function_exists('dilijanvillas_get_acf_media_url')
+                $poster = function_exists('dilijanvillas_get_acf_media_url')
                   ? dilijanvillas_get_acf_media_url('beground_img', $page_id)
                   : '';
+                if ($poster === '') {
+                  /** Постер не задан — берём первую картинку из галереи страницы, чтобы карточка не осталась пустой (видео на главной не показываем). */
+                  $gallery = get_field('gallery_block', $page_id);
+                  if (is_array($gallery)) {
+                    foreach ($gallery as $slide_item) {
+                      $candidates = array($slide_item);
+                      if (is_array($slide_item)) {
+                        foreach (array('video_or_image', 'image_or_video', 'imgvideo', 'image', 'video', 'file', 'url') as $key) {
+                          if (array_key_exists($key, $slide_item) && $slide_item[$key] !== '' && $slide_item[$key] !== null) {
+                            $candidates[] = $slide_item[$key];
+                          }
+                        }
+                      }
+                      foreach ($candidates as $candidate) {
+                        $candidate_resolved = $normalize_source($candidate);
+                        if ($candidate_resolved && $candidate_resolved['type'] === 'image') {
+                          $poster = $candidate_resolved['url'];
+                          break 2;
+                        }
+                      }
+                    }
+                  }
+                }
+                $resolved['poster'] = $poster;
                 return $resolved;
               };
 
@@ -299,6 +323,37 @@
               if (!is_array($gallery)) {
                 return array('url' => '', 'type' => '', 'mime' => '', 'poster' => '');
               }
+
+              /** Первая картинка из галереи — запасной постер для видео, если общий постер не задан (видео на главной не показываем). */
+              $find_first_image = static function ($items) {
+                if (!is_array($items)) {
+                  return '';
+                }
+                foreach ($items as $item) {
+                  $src = $item;
+                  if (is_array($item) && array_key_exists('image_or_video', $item)) {
+                    $src = $item['image_or_video'];
+                  } elseif (is_array($item) && array_key_exists('video_or_image', $item)) {
+                    $src = $item['video_or_image'];
+                  }
+                  $ex = function_exists('dilijanvillas_extract_media_from_source')
+                    ? dilijanvillas_extract_media_from_source($src)
+                    : array('url' => '', 'mime' => '');
+                  $u = isset($ex['url']) ? trim((string) $ex['url']) : '';
+                  $m = isset($ex['mime']) ? (string) $ex['mime'] : '';
+                  if ($u === '') {
+                    continue;
+                  }
+                  $iv = function_exists('dilijanvillas_is_video_media')
+                    ? dilijanvillas_is_video_media($u, $m)
+                    : (strpos($m, 'video/') === 0);
+                  if (!$iv) {
+                    return $u;
+                  }
+                }
+                return '';
+              };
+
               foreach ($gallery as $gallery_item) {
                 $media_source = $gallery_item;
                 if (is_array($gallery_item) && array_key_exists('image_or_video', $gallery_item)) {
@@ -321,7 +376,7 @@
                   'url' => $media_url,
                   'type' => $is_video ? 'video' : 'image',
                   'mime' => $media_mime,
-                  'poster' => $is_video ? $home_events_poster : '',
+                  'poster' => $is_video ? ($home_events_poster !== '' ? $home_events_poster : $find_first_image($gallery)) : '',
                 );
               }
               return array('url' => '', 'type' => '', 'mime' => '', 'poster' => '');
