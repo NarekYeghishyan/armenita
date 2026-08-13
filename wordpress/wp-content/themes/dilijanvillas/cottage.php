@@ -71,6 +71,15 @@ Description: This part is optional, but helpful for describing the Post Template
                 $gallery_items = get_field('gallery_block');
                 $slide_index = 0;
 
+                /**
+                 * A video slide paints nothing until the clip has enough data for
+                 * a first frame, so it sits black. The poster is this page's own
+                 * "Background image" (beground_img) field.
+                 */
+                $slide_poster = function_exists('dilijanvillas_get_acf_media_url')
+                  ? dilijanvillas_get_acf_media_url('beground_img')
+                  : '';
+
                 if (is_array($gallery_items)) :
                   foreach ($gallery_items as $item) :
                     $media_url = '';
@@ -120,7 +129,7 @@ Description: This part is optional, but helpful for describing the Post Template
                     ?>
                     <div class="stay-slider__slide<?php echo $slide_index === 0 ? ' is-active' : ''; ?>" data-stay-slide>
                       <?php if ($is_video): ?>
-                        <video class="stay-unit__video" muted loop playsinline preload="metadata" data-stay-slide-video>
+                        <video class="stay-unit__video" muted loop playsinline preload="metadata" data-stay-slide-video<?php echo $slide_poster !== '' ? ' poster="' . esc_url($slide_poster) . '"' : ''; ?>>
                           <source src="<?php echo esc_url($media_url); ?>" type="<?php echo esc_attr($media_mime !== '' ? $media_mime : 'video/mp4'); ?>" />
                         </video>
                       <?php else: ?>
