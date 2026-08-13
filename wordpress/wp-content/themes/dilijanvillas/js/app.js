@@ -1823,13 +1823,7 @@
       if (prevBtn) prevBtn.addEventListener("click", () => show(current - 1));
       if (nextBtn) nextBtn.addEventListener("click", () => show(current + 1));
 
-      let timer = setInterval(() => show(current + 1), 5500);
-      slider.addEventListener("mouseenter", () => clearInterval(timer));
-      slider.addEventListener("mouseleave", () => {
-        clearInterval(timer);
-        timer = setInterval(() => show(current + 1), 5500);
-      });
-
+      // No auto-advance: slides move only on the arrows or the dots.
       show(current);
     });
   }
