@@ -4801,3 +4801,25 @@ body:has(.error404-main) .footer__brand-row {
     padding-block: 0.7rem;
   }
 }
+
+/* Legal pages (privacy policy, terms of use) */
+.privacy-policy {
+  padding-top: 40px;
+}
+
+/* Short legal copy leaves empty space under the footer, so stretch the page to
+   the viewport and let the content take the slack. */
+body:has(.privacy-policy) {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+body:has(.privacy-policy) .privacy-policy {
+  flex: 1 0 auto;
+}
+
+body:has(.privacy-policy) .footer {
+  margin-top: auto;
+}
