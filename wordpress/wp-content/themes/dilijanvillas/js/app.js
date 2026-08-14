@@ -1451,13 +1451,10 @@
     });
   }
 
-  // Gallery page grid (template-parts/sections/gallery-grid.php with use_fancybox).
-  // The @fancyapps/ui bundle is enqueued only on that template, so bail out quietly
-  // everywhere else — those grids keep the built-in #lightbox above.
-  function initFancyboxGallery() {
-    const fancybox = window.Fancybox;
-    if (!fancybox || !document.querySelector("[data-fancybox]")) return;
-
+  // @fancyapps/ui is enqueued only on the templates that need it (see
+  // dilijanvillas_current_page_uses_fancybox in functions.php), so every entry
+  // point below bails out quietly when window.Fancybox is missing.
+  function getFancyboxOptions() {
     const l10n = {
       hy: {
         CLOSE: "Փակել",
@@ -1501,7 +1498,7 @@
       }
     };
 
-    fancybox.bind("[data-fancybox]", {
+    return {
       Hash: false,
       idle: false,
       contentClick: "iterateZoom",
@@ -1515,7 +1512,16 @@
           right: ["zoomIn", "zoomOut", "slideshow", "thumbs", "fullscreen", "close"]
         }
       }
-    });
+    };
+  }
+
+  // Gallery page grid (template-parts/sections/gallery-grid.php with use_fancybox).
+  // Other grids keep the built-in #lightbox above.
+  function initFancyboxGallery() {
+    const fancybox = window.Fancybox;
+    if (!fancybox || !document.querySelector("[data-fancybox]")) return;
+
+    fancybox.bind("[data-fancybox]", getFancyboxOptions());
   }
 
   function initStayUnitDetails() {
@@ -1840,6 +1846,95 @@
     });
   }
 
+  const ZOOM_HINT_LABEL = { hy: "Խոշորացնել", ru: "Увеличить", en: "Zoom" };
+  const ZOOM_HINT_ICON =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' +
+    '<circle cx="10.5" cy="10.5" r="6.5"></circle><path d="M10.5 7.8v5.4M7.8 10.5h5.4"></path><path d="m15.4 15.4 5.1 5.1"></path></svg>';
+
+  /**
+   * One .stay-slider slide as a Fancybox item, or null when it holds no media.
+   *
+   * @param {HTMLElement} slide
+   * @returns {Object|null}
+   */
+  function staySlideToFancyboxItem(slide) {
+    const video = slide.querySelector("video");
+    if (video) {
+      const source = video.querySelector("source");
+      const src = (source && source.getAttribute("src")) || video.getAttribute("src") || "";
+      if (!src) return null;
+
+      const item = { src };
+      const poster = video.getAttribute("poster") || "";
+      if (poster) {
+        item.poster = poster;
+        item.thumb = poster;
+      }
+      // Fancybox boxes every clip as 16/9; the portrait phone footage in these
+      // galleries needs its own ratio, known once metadata has loaded.
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        item.videoRatio = video.videoWidth / video.videoHeight;
+      }
+      return item;
+    }
+
+    const img = slide.querySelector("img");
+    const src = img ? img.getAttribute("src") || "" : "";
+    if (!src) return null;
+
+    const item = { src, thumb: src };
+    const alt = img.getAttribute("alt") || "";
+    if (alt) item.caption = alt;
+    return item;
+  }
+
+  /**
+   * Opens the slides of one .stay-slider in Fancybox: click anywhere on the
+   * media, or use the loupe badge (which is also the keyboard entry point).
+   * The badge is built here so the four templates rendering .stay-slider keep
+   * their markup unchanged.
+   *
+   * @param {HTMLElement} slider
+   * @param {HTMLElement[]} slides
+   * @param {() => number} getIndex Index of the slide currently on screen.
+   */
+  function initStaySliderZoom(slider, slides, getIndex) {
+    const fancybox = window.Fancybox;
+    if (!fancybox) return;
+    if (!slides.some((slide) => staySlideToFancyboxItem(slide))) return;
+
+    const open = () => {
+      // Collected per click, not once at boot: video metadata arrives late, and
+      // slides without media shift the indexes away from the slider's own.
+      const activeSlide = slides[getIndex()];
+      const items = [];
+      let startIndex = 0;
+
+      slides.forEach((slide) => {
+        const item = staySlideToFancyboxItem(slide);
+        if (!item) return;
+        if (slide === activeSlide) startIndex = items.length;
+        items.push(item);
+      });
+
+      if (!items.length) return;
+      fancybox.show(items, Object.assign(getFancyboxOptions(), { startIndex }));
+    };
+
+    const hint = document.createElement("button");
+    hint.type = "button";
+    hint.className = "stay-slider__zoom";
+    hint.setAttribute("aria-label", ZOOM_HINT_LABEL[getLang()] || ZOOM_HINT_LABEL.en);
+    hint.innerHTML = ZOOM_HINT_ICON;
+    hint.addEventListener("click", open);
+    slider.appendChild(hint);
+
+    const track = slider.querySelector("[data-stay-slider-track]");
+    if (track) track.addEventListener("click", open);
+
+    slider.classList.add("stay-slider--zoomable");
+  }
+
   function initStaySliders() {
     const sliders = Array.from(document.querySelectorAll("[data-stay-slider]"));
     if (!sliders.length) return;
@@ -1853,6 +1948,8 @@
 
       let current = Math.max(0, slides.findIndex((s) => s.classList.contains("is-active")));
       if (current < 0) current = 0;
+
+      initStaySliderZoom(slider, slides, () => current);
 
       if (slides.length < 2) {
         if (prevBtn) prevBtn.hidden = true;

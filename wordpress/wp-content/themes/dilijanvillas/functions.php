@@ -78,9 +78,10 @@ function dilijanvillas_maybe_create_general_menu()
 add_action('init', 'dilijanvillas_maybe_create_general_menu');
 
 /**
- * Whether the current request renders a gallery grid that opens in Fancybox.
+ * Whether the current request renders media that opens in Fancybox: the gallery
+ * grid, or the .stay-slider blocks the templates below render.
  *
- * Template-based, so every Polylang translation of the Gallery page is covered.
+ * Template-based, so every Polylang translation of those pages is covered.
  *
  * @return bool
  */
@@ -90,7 +91,23 @@ function dilijanvillas_current_page_uses_fancybox()
         return false;
     }
 
-    return dilijanvillas_is_gallery_page_template((int) get_queried_object_id());
+    $page_id = (int) get_queried_object_id();
+    if ($page_id <= 0) {
+        return false;
+    }
+
+    if (dilijanvillas_is_gallery_page_template($page_id)) {
+        return true;
+    }
+
+    $template = str_replace('\\', '/', (string) get_page_template_slug($page_id));
+    if ($template === '') {
+        return false;
+    }
+
+    $slider_templates = array('stay-with-us.php', 'cottage.php', 'private-willa.php', 'events.php');
+
+    return in_array(basename($template), $slider_templates, true);
 }
 
 function dilijanvillas_enqueue_assets()
