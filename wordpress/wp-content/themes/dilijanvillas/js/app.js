@@ -1060,6 +1060,41 @@
     });
   }
 
+  /**
+   * A menu item points at a single events card (…/events-and-activates/#diving-2).
+   * The browser jumps there while the hero video and the card sliders are still
+   * settling, so the landing spot drifts. Re-align once everything has loaded —
+   * unless the visitor already started scrolling on their own.
+   */
+  function initHashTargetScroll() {
+    const hash = window.location.hash;
+    if (!hash || hash === "#") return;
+
+    let target = null;
+    try {
+      target = document.getElementById(decodeURIComponent(hash.slice(1)));
+    } catch {
+      target = document.getElementById(hash.slice(1));
+    }
+    if (!target) return;
+
+    let cancelled = false;
+    const cancel = () => {
+      cancelled = true;
+    };
+    ["wheel", "touchstart", "keydown", "pointerdown"].forEach((eventName) => {
+      window.addEventListener(eventName, cancel, { passive: true, once: true });
+    });
+
+    const align = () => {
+      if (cancelled) return;
+      target.scrollIntoView({ behavior: "auto", block: "start" });
+    };
+
+    requestAnimationFrame(align);
+    window.addEventListener("load", () => requestAnimationFrame(align), { once: true });
+  }
+
   function initScrollButtons() {
     const down = document.querySelector("[data-scroll-down]");
     const hero = document.getElementById("hero");
@@ -2849,6 +2884,7 @@
     initNavDropdowns();
     initMobileNav();
     initScrollButtons();
+    initHashTargetScroll();
     initReveal();
     initAboutSliders();
     initVideo();

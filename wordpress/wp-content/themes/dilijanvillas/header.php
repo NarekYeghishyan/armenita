@@ -272,6 +272,10 @@
             ? dilijanvillas_get_acf_media_url('beground_img', $source_post_id)
             : '';
 
+        // Каждая строка репитера — отдельный блок на странице событий, поэтому
+        // пункт меню ведёт на её якорь (#tours-1, #diving-2, …).
+        $events_permalink = (string) get_permalink($source_post_id);
+
         $group_labels = array(
             'tours' => $tour_group_label,
             'diving_experience' => $restaurant_group_label,
@@ -306,12 +310,18 @@
                     $title = $group_label . ' ' . ($index + 1);
                 }
 
-                $url = '#';
+                $url = '';
                 foreach (array('url', 'link', 'page_url') as $url_key) {
                     if (!empty($row[$url_key]) && is_string($row[$url_key])) {
                         $url = trim($row[$url_key]);
                         break;
                     }
+                }
+
+                // Своей ссылки в CMS у строки нет — ведём на её блок на странице событий.
+                if ($url === '' || $url === '#') {
+                    $anchor = '#' . dilijanvillas_events_card_anchor($group_key, $index);
+                    $url = $events_permalink !== '' ? $events_permalink . $anchor : $anchor;
                 }
 
                 $description_raw = isset($row['menu_description']) && is_string($row['menu_description']) ? $row['menu_description'] : '';

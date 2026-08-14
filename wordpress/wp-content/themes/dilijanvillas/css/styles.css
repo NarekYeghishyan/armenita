@@ -1991,6 +1991,8 @@ body.site-access-locked {
 }
 
 .events-page__card {
+  /* Menu links jump straight to a card — keep it clear of the fixed header. */
+  scroll-margin-top: 6rem;
   border-radius: var(--radius);
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.1);

@@ -401,6 +401,32 @@ function dilijanvillas_get_acf_media_url($field_name, $post_id = 0)
 }
 
 /**
+ * Anchor id of one "Events and activates" card.
+ *
+ * The tours/diving rows have no page of their own, so the header dropdown links
+ * a row to its own block on the events page. Both sides walk the same repeater
+ * in the same order, so the row index is what keeps the two in sync — a slug
+ * built from the title would drift as soon as the header falls back to the
+ * default-language rows.
+ *
+ * @param string $group_key Repeater name: "tours" or "diving_experience".
+ * @param int    $index     Zero-based row index.
+ * @return string
+ */
+function dilijanvillas_events_card_anchor($group_key, $index)
+{
+    $prefixes = array(
+        // Section ids of events.php.
+        'tours' => 'tours',
+        'diving_experience' => 'diving',
+    );
+
+    $prefix = isset($prefixes[(string) $group_key]) ? $prefixes[(string) $group_key] : 'events';
+
+    return $prefix . '-' . ((int) $index + 1);
+}
+
+/**
  * Preload hero banner image on the front page for faster first paint.
  */
 function dilijanvillas_preload_front_page_hero_assets()

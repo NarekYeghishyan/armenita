@@ -126,7 +126,7 @@ Description: Events and activates page
           <p class="events-page__intro reveal" data-reveal><?php the_field('description_toure') ?></p>
           <div class="events-page__grid">
             <?php foreach (get_field('tours') as $key => $tour): ?>
-              <article class="events-page__card reveal" data-reveal>
+              <article class="events-page__card reveal" id="<?php echo esc_attr(dilijanvillas_events_card_anchor('tours', $key)); ?>" data-reveal>
               <div class="events-page__card-preview">
                 <div class="events-page__card-body events-page__card-body--stack">
                   <?php
@@ -228,7 +228,7 @@ Description: Events and activates page
           <p class="events-page__intro reveal" data-reveal><?php the_field('description_diving') ?></p>
           <div class="events-page__grid">
             <?php foreach (get_field('diving_experience') as $key => $diving): ?>
-              <article class="events-page__card reveal" data-reveal>
+              <article class="events-page__card reveal" id="<?php echo esc_attr(dilijanvillas_events_card_anchor('diving_experience', $key)); ?>" data-reveal>
                 <div class="events-page__card-preview">
                   <div class="events-page__card-body events-page__card-body--stack">
                     <?php
