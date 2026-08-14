@@ -79,7 +79,7 @@ add_action('init', 'dilijanvillas_maybe_create_general_menu');
 
 /**
  * Whether the current request renders media that opens in Fancybox: the gallery
- * grid, or the .stay-slider blocks the templates below render.
+ * grid, or the media sliders the templates below render.
  *
  * Template-based, so every Polylang translation of those pages is covered.
  *
@@ -105,7 +105,7 @@ function dilijanvillas_current_page_uses_fancybox()
         return false;
     }
 
-    $slider_templates = array('stay-with-us.php', 'cottage.php', 'private-willa.php', 'events.php');
+    $slider_templates = array('stay-with-us.php', 'cottage.php', 'private-willa.php', 'events.php', 'about.php');
 
     return in_array(basename($template), $slider_templates, true);
 }

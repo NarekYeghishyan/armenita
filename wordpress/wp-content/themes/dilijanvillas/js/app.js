@@ -1368,6 +1368,10 @@
       let current = Math.max(0, slides.findIndex((img) => img.classList.contains("is-active")));
       if (current < 0) current = 0;
 
+      // The slides here are the <img>/<video> elements themselves, and the
+      // arrows are their siblings, so the whole slider box is the click target.
+      initSliderZoom(slider, slides, () => current, { block: "about-slider" });
+
       const show = (idx) => {
         current = ((idx % slides.length) + slides.length) % slides.length;
         slides.forEach((img, i) => img.classList.toggle("is-active", i === current));
@@ -1852,13 +1856,15 @@
     '<circle cx="10.5" cy="10.5" r="6.5"></circle><path d="M10.5 7.8v5.4M7.8 10.5h5.4"></path><path d="m15.4 15.4 5.1 5.1"></path></svg>';
 
   /**
-   * One .stay-slider slide as a Fancybox item, or null when it holds no media.
+   * One slide as a Fancybox item, or null when it holds no media. Takes both a
+   * wrapper holding the media (.stay-slider) and a bare <img>/<video> that is
+   * itself the slide (.about-slider).
    *
    * @param {HTMLElement} slide
    * @returns {Object|null}
    */
-  function staySlideToFancyboxItem(slide) {
-    const video = slide.querySelector("video");
+  function slideToFancyboxItem(slide) {
+    const video = slide.matches("video") ? slide : slide.querySelector("video");
     if (video) {
       const source = video.querySelector("source");
       const src = (source && source.getAttribute("src")) || video.getAttribute("src") || "";
@@ -1878,7 +1884,7 @@
       return item;
     }
 
-    const img = slide.querySelector("img");
+    const img = slide.matches("img") ? slide : slide.querySelector("img");
     const src = img ? img.getAttribute("src") || "" : "";
     if (!src) return null;
 
@@ -1889,19 +1895,22 @@
   }
 
   /**
-   * Opens the slides of one .stay-slider in Fancybox: click anywhere on the
-   * media, or use the loupe badge (which is also the keyboard entry point).
-   * The badge is built here so the four templates rendering .stay-slider keep
-   * their markup unchanged.
+   * Opens the slides of one slider in Fancybox: click anywhere on the media, or
+   * use the loupe badge (which is also the keyboard entry point). The badge is
+   * built here so the templates rendering the sliders keep their markup
+   * unchanged.
    *
    * @param {HTMLElement} slider
    * @param {HTMLElement[]} slides
    * @param {() => number} getIndex Index of the slide currently on screen.
+   * @param {{block: string, clickTarget?: HTMLElement|null}} config
+   *   `block` names the BEM block owning the badge and cursor styles;
+   *   `clickTarget` is what listens for clicks (the slider itself by default).
    */
-  function initStaySliderZoom(slider, slides, getIndex) {
+  function initSliderZoom(slider, slides, getIndex, config) {
     const fancybox = window.Fancybox;
     if (!fancybox) return;
-    if (!slides.some((slide) => staySlideToFancyboxItem(slide))) return;
+    if (!slides.some((slide) => slideToFancyboxItem(slide))) return;
 
     const open = () => {
       // Collected per click, not once at boot: video metadata arrives late, and
@@ -1911,7 +1920,7 @@
       let startIndex = 0;
 
       slides.forEach((slide) => {
-        const item = staySlideToFancyboxItem(slide);
+        const item = slideToFancyboxItem(slide);
         if (!item) return;
         if (slide === activeSlide) startIndex = items.length;
         items.push(item);
@@ -1923,16 +1932,21 @@
 
     const hint = document.createElement("button");
     hint.type = "button";
-    hint.className = "stay-slider__zoom";
+    hint.className = config.block + "__zoom";
     hint.setAttribute("aria-label", ZOOM_HINT_LABEL[getLang()] || ZOOM_HINT_LABEL.en);
     hint.innerHTML = ZOOM_HINT_ICON;
     hint.addEventListener("click", open);
     slider.appendChild(hint);
 
-    const track = slider.querySelector("[data-stay-slider-track]");
-    if (track) track.addEventListener("click", open);
+    const clickTarget = config.clickTarget || slider;
+    clickTarget.addEventListener("click", (event) => {
+      // The arrows and the badge sit inside some of these boxes; leave those
+      // clicks to their own handlers.
+      if (event.target.closest("button, a")) return;
+      open();
+    });
 
-    slider.classList.add("stay-slider--zoomable");
+    slider.classList.add(config.block + "--zoomable");
   }
 
   function initStaySliders() {
@@ -1949,7 +1963,10 @@
       let current = Math.max(0, slides.findIndex((s) => s.classList.contains("is-active")));
       if (current < 0) current = 0;
 
-      initStaySliderZoom(slider, slides, () => current);
+      initSliderZoom(slider, slides, () => current, {
+        block: "stay-slider",
+        clickTarget: slider.querySelector("[data-stay-slider-track]")
+      });
 
       if (slides.length < 2) {
         if (prevBtn) prevBtn.hidden = true;
