@@ -330,7 +330,7 @@ Description: This part is optional, but helpful for describing the Post Template
 
                 <div class="stay-feature__actions">
                   <button type="button" class="btn btn--primary btn--book-now" data-booking-popup-open data-i18n="about_book_now">Book now</button>
-                  <a class="btn btn--ghost" href="<?php echo esc_url(get_permalink($cottage_page_id)); ?>">See more</a>
+                  <a class="btn btn--ghost" href="<?php echo esc_url(get_permalink($cottage_page_id)); ?>" data-i18n="stay_see_more">See more</a>
                 </div>
               </div>
             </article>
@@ -521,7 +521,7 @@ Description: This part is optional, but helpful for describing the Post Template
 
                 <div class="stay-feature__actions">
                   <button type="button" class="btn btn--primary btn--book-now" data-booking-popup-open data-i18n="about_book_now">Book now</button>
-                  <a class="btn btn--ghost" href="<?php echo esc_url(get_permalink($villa_page_id)); ?>">See more</a>
+                  <a class="btn btn--ghost" href="<?php echo esc_url(get_permalink($villa_page_id)); ?>" data-i18n="stay_see_more">See more</a>
                 </div>
               </div>
             </article>
