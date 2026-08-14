@@ -388,21 +388,24 @@
               return array('url' => '', 'type' => '', 'mime' => '', 'poster' => '');
             };
 
+            /** Поле "Poster (home page card)" строки — картинка именно для этой карточки. */
+            $home_event_row_poster = static function ($row) {
+              if (empty($row['poster']) || !function_exists('dilijanvillas_extract_media_from_source')) {
+                return '';
+              }
+              $poster_media = dilijanvillas_extract_media_from_source($row['poster']);
+              return isset($poster_media['url']) ? trim((string) $poster_media['url']) : '';
+            };
+
             $home_event_cards = array();
             $home_tours = get_field('tours', $home_events_source_id);
             if (is_array($home_tours)) {
               foreach ($home_tours as $home_tour) {
-                /** Поле "Poster (home page card)" тура — картинка именно для этой карточки. */
-                $home_tour_poster = '';
-                if (!empty($home_tour['poster']) && function_exists('dilijanvillas_extract_media_from_source')) {
-                  $home_tour_poster_media = dilijanvillas_extract_media_from_source($home_tour['poster']);
-                  $home_tour_poster = isset($home_tour_poster_media['url']) ? trim((string) $home_tour_poster_media['url']) : '';
-                }
                 $home_event_cards[] = array(
                   'anchor' => 'tours',
                   'description' => isset($home_tour['description']) ? (string) $home_tour['description'] : '',
                   'gallery' => isset($home_tour['gallery']) ? $home_tour['gallery'] : array(),
-                  'poster' => $home_tour_poster,
+                  'poster' => $home_event_row_poster($home_tour),
                 );
               }
             }
@@ -413,7 +416,7 @@
                   'anchor' => 'diving',
                   'description' => isset($home_diving_item['description']) ? (string) $home_diving_item['description'] : '',
                   'gallery' => isset($home_diving_item['gallery']) ? $home_diving_item['gallery'] : array(),
-                  'poster' => '',
+                  'poster' => $home_event_row_poster($home_diving_item),
                 );
               }
             }
