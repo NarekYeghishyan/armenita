@@ -2045,6 +2045,7 @@ body.site-access-locked {
 
 .events-page__card-preview .events-page__card-media.stay-slider {
   min-width: 0;
+  max-width: 100%;
 }
 
 .events-page__card-body--stack .header__dropdown-whatsapp {
