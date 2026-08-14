@@ -1451,6 +1451,73 @@
     });
   }
 
+  // Gallery page grid (template-parts/sections/gallery-grid.php with use_fancybox).
+  // The @fancyapps/ui bundle is enqueued only on that template, so bail out quietly
+  // everywhere else — those grids keep the built-in #lightbox above.
+  function initFancyboxGallery() {
+    const fancybox = window.Fancybox;
+    if (!fancybox || !document.querySelector("[data-fancybox]")) return;
+
+    const l10n = {
+      hy: {
+        CLOSE: "Փակել",
+        NEXT: "Հաջորդ լուսանկարը",
+        PREV: "Նախորդ լուսանկարը",
+        ERROR: "Ինչ-որ բան այնպես չգնաց, փորձեք մի փոքր ուշ",
+        IMAGE_ERROR: "Նկարը չի գտնվել",
+        TOGGLE_ZOOM: "Խոշորացնել / փոքրացնել",
+        TOGGLEZOOM: "Խոշորացնել / փոքրացնել",
+        ITERATEZOOM: "Խոշորացնել / փոքրացնել",
+        ZOOMIN: "Խոշորացնել",
+        ZOOMOUT: "Փոքրացնել",
+        TOGGLE_THUMBS: "Մանրապատկերներ",
+        TOGGLE_SLIDESHOW: "Ցուցադրություն",
+        TOGGLE_FULLSCREEN: "Լիաէկրան ռեժիմ",
+        DOWNLOAD: "Ներբեռնել"
+      },
+      ru: {
+        CLOSE: "Закрыть",
+        NEXT: "Следующее фото",
+        PREV: "Предыдущее фото",
+        ERROR: "Что-то пошло не так, попробуйте позже",
+        IMAGE_ERROR: "Изображение не найдено",
+        TOGGLE_ZOOM: "Масштаб",
+        TOGGLEZOOM: "Масштаб",
+        ITERATEZOOM: "Масштаб",
+        ZOOMIN: "Приблизить",
+        ZOOMOUT: "Отдалить",
+        TOGGLE_THUMBS: "Миниатюры",
+        TOGGLE_SLIDESHOW: "Слайд-шоу",
+        TOGGLE_FULLSCREEN: "Полноэкранный режим",
+        DOWNLOAD: "Скачать"
+      },
+      en: {
+        CLOSE: "Close",
+        NEXT: "Next photo",
+        PREV: "Previous photo",
+        TOGGLE_THUMBS: "Thumbnails",
+        TOGGLE_SLIDESHOW: "Slideshow",
+        TOGGLE_FULLSCREEN: "Full screen"
+      }
+    };
+
+    fancybox.bind("[data-fancybox]", {
+      Hash: false,
+      idle: false,
+      contentClick: "iterateZoom",
+      l10n: l10n[getLang()] || l10n.en,
+      Carousel: { transition: "slide" },
+      Thumbs: { type: "classic", showOnStart: false },
+      Toolbar: {
+        display: {
+          left: ["infobar"],
+          middle: [],
+          right: ["zoomIn", "zoomOut", "slideshow", "thumbs", "fullscreen", "close"]
+        }
+      }
+    });
+  }
+
   function initStayUnitDetails() {
     const section = document.getElementById("stay-unit-details");
     if (!section) return;
@@ -2664,6 +2731,7 @@
     initVideoGallery();
     initEventsQuickVideos();
     initGalleryLightbox();
+    initFancyboxGallery();
     initStayUnitDetails();
     initStaySliders();
     initContactPopup();

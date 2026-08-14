@@ -24,6 +24,9 @@ $title = array_key_exists('title', $args) ? (string) $args['title'] : '';
 $title_i18n = !empty($args['title_i18n']) ? (string) $args['title_i18n'] : 'gallery_title';
 $show_title = !array_key_exists('show_title', $args) || !empty($args['show_title']);
 $parallax_speed = !empty($args['parallax_speed']) ? (string) $args['parallax_speed'] : '0.22';
+// Fancybox replaces the built-in #lightbox for this grid (see initFancyboxGallery in js/app.js).
+$use_fancybox = !empty($args['use_fancybox']);
+$fancybox_group = !empty($args['fancybox_group']) ? (string) $args['fancybox_group'] : $grid_id;
 ?>
 
 <section class="<?php echo esc_attr($section_class); ?>" id="<?php echo esc_attr($section_id); ?>">
@@ -42,6 +45,7 @@ $parallax_speed = !empty($args['parallax_speed']) ? (string) $args['parallax_spe
     <?php endif; ?>
     <div class="gallery" id="<?php echo esc_attr($grid_id); ?>" data-gallery-root>
       <?php foreach ($gallery_items as $gallery_index => $gallery_item) :
+        $zoom_src = !empty($gallery_item['zoom_src']) ? (string) $gallery_item['zoom_src'] : (string) $gallery_item['full_src'];
         $figure_classes = 'gallery__item reveal';
         if ((int) $gallery_index === 0) {
           $figure_classes .= ' gallery__item--lg';
@@ -50,19 +54,38 @@ $parallax_speed = !empty($args['parallax_speed']) ? (string) $args['parallax_spe
         }
       ?>
         <figure class="<?php echo esc_attr($figure_classes); ?>" data-reveal>
-          <button
-            type="button"
-            class="gallery__open"
-            data-gallery-open
-            data-gallery-full="<?php echo esc_url($gallery_item['full_src']); ?>"
-            aria-label="Open"
-          >
-            <img
-              src="<?php echo esc_url($gallery_item['preview_src']); ?>"
-              alt="<?php echo esc_attr($gallery_item['image_alt']); ?>"
-              loading="lazy"
-            />
-          </button>
+          <?php if ($use_fancybox) : ?>
+            <a
+              class="gallery__open"
+              href="<?php echo esc_url($zoom_src); ?>"
+              data-fancybox="<?php echo esc_attr($fancybox_group); ?>"
+              <?php if ($gallery_item['image_alt'] !== '') : ?>
+                data-caption="<?php echo esc_attr($gallery_item['image_alt']); ?>"
+              <?php else : ?>
+                aria-label="Open"
+              <?php endif; ?>
+            >
+              <img
+                src="<?php echo esc_url($gallery_item['preview_src']); ?>"
+                alt="<?php echo esc_attr($gallery_item['image_alt']); ?>"
+                loading="lazy"
+              />
+            </a>
+          <?php else : ?>
+            <button
+              type="button"
+              class="gallery__open"
+              data-gallery-open
+              data-gallery-full="<?php echo esc_url($gallery_item['full_src']); ?>"
+              aria-label="Open"
+            >
+              <img
+                src="<?php echo esc_url($gallery_item['preview_src']); ?>"
+                alt="<?php echo esc_attr($gallery_item['image_alt']); ?>"
+                loading="lazy"
+              />
+            </button>
+          <?php endif; ?>
         </figure>
       <?php endforeach; ?>
     </div>

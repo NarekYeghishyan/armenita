@@ -77,8 +77,26 @@ function dilijanvillas_maybe_create_general_menu()
 }
 add_action('init', 'dilijanvillas_maybe_create_general_menu');
 
+/**
+ * Whether the current request renders a gallery grid that opens in Fancybox.
+ *
+ * Template-based, so every Polylang translation of the Gallery page is covered.
+ *
+ * @return bool
+ */
+function dilijanvillas_current_page_uses_fancybox()
+{
+    if (is_admin() || !is_page()) {
+        return false;
+    }
+
+    return dilijanvillas_is_gallery_page_template((int) get_queried_object_id());
+}
+
 function dilijanvillas_enqueue_assets()
 {
+    $use_fancybox = dilijanvillas_current_page_uses_fancybox();
+
     wp_enqueue_style(
         'dilijanvillas-google-fonts',
         'https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Outfit:wght@300;400;500;600;700&family=Noto+Sans+Armenian:wght@300;400;500;600;700&family=Noto+Serif+Armenian:wght@400;600;700&display=swap',
@@ -93,10 +111,25 @@ function dilijanvillas_enqueue_assets()
         '4.6.13'
     );
 
+    if ($use_fancybox) {
+        wp_enqueue_style(
+            'fancybox',
+            'https://cdn.jsdelivr.net/npm/@fancyapps/ui@5.0.36/dist/fancybox/fancybox.css',
+            array(),
+            '5.0.36'
+        );
+    }
+
+    // Theme styles load last so the Fancybox skin overrides in styles.css win.
+    $main_style_deps = array('dilijanvillas-google-fonts', 'flatpickr');
+    if ($use_fancybox) {
+        $main_style_deps[] = 'fancybox';
+    }
+
     wp_enqueue_style(
         'dilijanvillas-main',
         get_template_directory_uri() . '/css/styles.css',
-        array('dilijanvillas-google-fonts', 'flatpickr'),
+        $main_style_deps,
         filemtime(get_template_directory() . '/css/styles.css')
     );
 
@@ -108,10 +141,25 @@ function dilijanvillas_enqueue_assets()
         true
     );
 
+    if ($use_fancybox) {
+        wp_enqueue_script(
+            'fancybox',
+            'https://cdn.jsdelivr.net/npm/@fancyapps/ui@5.0.36/dist/fancybox/fancybox.umd.js',
+            array(),
+            '5.0.36',
+            true
+        );
+    }
+
+    $main_script_deps = array('flatpickr');
+    if ($use_fancybox) {
+        $main_script_deps[] = 'fancybox';
+    }
+
     wp_enqueue_script(
         'dilijanvillas-main',
         get_template_directory_uri() . '/js/app.js',
-        array('flatpickr'),
+        $main_script_deps,
         filemtime(get_template_directory() . '/js/app.js'),
         true
     );
@@ -386,6 +434,8 @@ function dilijanvillas_normalize_gallery_items($gallery)
         $image_alt = '';
         $preview_src = '';
         $full_src = '';
+        // Sharper source for the Fancybox lightbox; falls back to $full_src.
+        $zoom_src = '';
 
         if (is_array($gallery_item)) {
             if (!empty($gallery_item['ID'])) {
@@ -413,6 +463,14 @@ function dilijanvillas_normalize_gallery_items($gallery)
                 $full_src = (string) $gallery_item['sizes']['full'];
             } elseif (!empty($gallery_item['url'])) {
                 $full_src = (string) $gallery_item['url'];
+            }
+
+            if (!empty($gallery_item['sizes']['2048x2048'])) {
+                $zoom_src = (string) $gallery_item['sizes']['2048x2048'];
+            } elseif (!empty($gallery_item['sizes']['1536x1536'])) {
+                $zoom_src = (string) $gallery_item['sizes']['1536x1536'];
+            } elseif (!empty($gallery_item['url'])) {
+                $zoom_src = (string) $gallery_item['url'];
             }
         } elseif (is_numeric($gallery_item)) {
             $image_id = (int) $gallery_item;
@@ -445,6 +503,15 @@ function dilijanvillas_normalize_gallery_items($gallery)
             if ($full_src === '') {
                 $full_src = (string) wp_get_attachment_image_url($image_id, 'full');
             }
+            if ($zoom_src === '') {
+                $zoom_src = (string) wp_get_attachment_image_url($image_id, '2048x2048');
+            }
+            if ($zoom_src === '') {
+                $zoom_src = (string) wp_get_attachment_image_url($image_id, '1536x1536');
+            }
+            if ($zoom_src === '') {
+                $zoom_src = (string) wp_get_attachment_image_url($image_id, 'full');
+            }
             if ($image_alt === '') {
                 $image_alt = (string) get_post_meta($image_id, '_wp_attachment_image_alt', true);
             }
@@ -457,6 +524,7 @@ function dilijanvillas_normalize_gallery_items($gallery)
         $items[] = array(
             'preview_src' => $preview_src,
             'full_src' => $full_src,
+            'zoom_src' => $zoom_src !== '' ? $zoom_src : $full_src,
             'image_alt' => $image_alt,
         );
     }

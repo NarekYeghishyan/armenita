@@ -3064,6 +3064,9 @@ button,
   flex-wrap: wrap;
 }
 
+/* <button> does not inherit the page font or line-height from the UA, so a
+   button and a link sharing .btn would render at different heights. Pin both
+   here to keep every pair of buttons level. */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -3072,7 +3075,9 @@ button,
   border-radius: 999px;
   border: 1px solid transparent;
   text-transform: uppercase;
+  font-family: inherit;
   font-size: 0.78rem;
+  line-height: 1.6;
   letter-spacing: 0.08em;
   cursor: pointer;
   transition: transform 0.25s ease, box-shadow 0.25s ease, background-color 0.25s ease, border-color 0.25s ease;
@@ -3272,6 +3277,7 @@ button,
 }
 
 .gallery__open {
+  display: block;
   width: 100%;
   height: 100%;
   border: none;
@@ -3290,6 +3296,33 @@ button,
 
 .gallery__item:hover .gallery__open img {
   transform: scale(1.04);
+}
+
+/* Fancybox skin (gallery page) — matches the dark/gold theme. */
+.fancybox__container {
+  --fancybox-bg: rgba(11, 9, 8, 0.96);
+  --fancybox-color: var(--text);
+  --fancybox-hover-color: #fff;
+  --f-spinner-color-1: rgba(245, 238, 228, 0.14);
+  --f-spinner-color-2: var(--accent);
+  --f-button-color: var(--text);
+  --f-button-hover-color: #fff;
+  --f-button-bg: rgba(36, 29, 24, 0.65);
+  --f-button-hover-bg: rgba(200, 154, 94, 0.85);
+  --f-button-active-bg: rgba(200, 154, 94, 0.95);
+  --f-button-border-radius: 999px;
+  --f-button-outline-color: var(--ring);
+  --f-progress-color: var(--accent);
+  --f-thumb-border-radius: 8px;
+  --f-thumb-outline: 2px;
+  --f-thumb-outline-color: var(--accent);
+  font-family: var(--font-sans);
+}
+
+.fancybox__caption {
+  font-family: var(--font-sans);
+  font-size: 0.95rem;
+  color: var(--text-muted);
 }
 
 .videos-showcase {

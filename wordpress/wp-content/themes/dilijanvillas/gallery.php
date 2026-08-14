@@ -128,6 +128,7 @@ Description: Photo gallery page
               'section_class' => $has_gallery_hero ? 'section section--gallery section--gallery-page' : 'section section--gallery section--gallery-page section--gallery-page-first',
               'show_title' => !$has_gallery_hero,
               'title' => $gallery_page_title,
+              'use_fancybox' => true,
             )
           );
         ?>
