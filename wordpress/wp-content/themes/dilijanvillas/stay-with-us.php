@@ -151,6 +151,23 @@ Description: This part is optional, but helpful for describing the Post Template
             }
           };
 
+          /**
+           * A video slide paints nothing until the clip has buffered a first
+           * frame, so it sits black inside the card. Poster it with the unit's
+           * own "Background image" (beground_img), the same source its detail
+           * page uses, and fall back to this page's field when a unit has none.
+           */
+          $stay_page_poster = function_exists('dilijanvillas_get_acf_media_url')
+            ? dilijanvillas_get_acf_media_url('beground_img')
+            : '';
+
+          $stay_slide_poster = static function ($unit_page_id) use ($stay_page_poster) {
+            $poster = function_exists('dilijanvillas_get_acf_media_url')
+              ? dilijanvillas_get_acf_media_url('beground_img', (int) $unit_page_id)
+              : '';
+            return $poster !== '' ? $poster : $stay_page_poster;
+          };
+
           $stay_current_lang = function_exists('pll_current_language') ? pll_current_language('slug') : '';
           $cottage_query_args = array(
             'post_type' => 'page',
@@ -220,6 +237,7 @@ Description: This part is optional, but helpful for describing the Post Template
               || $stay_has_icon_text_items($cottage_features)
               || $stay_has_icon_text_items($cottage_types);
             $cottage_gallery = get_field('gallery_block', $cottage_page_id);
+            $cottage_poster = $stay_slide_poster($cottage_page_id);
             ?>
             <article class="<?php echo esc_attr($card_classes); ?>" data-reveal>
               <div class="stay-feature__media stay-slider" data-stay-slider>
@@ -269,7 +287,7 @@ Description: This part is optional, but helpful for describing the Post Template
                       ?>
                       <div class="stay-slider__slide<?php echo $slide_index === 0 ? ' is-active' : ''; ?>" data-stay-slide>
                         <?php if ($is_video) : ?>
-                          <video muted loop playsinline preload="metadata" data-stay-slide-video>
+                          <video muted loop playsinline preload="metadata" data-stay-slide-video<?php echo $cottage_poster !== '' ? ' poster="' . esc_url($cottage_poster) . '"' : ''; ?>>
                             <source src="<?php echo esc_url($media_url); ?>" type="<?php echo esc_attr($media_mime !== '' ? $media_mime : 'video/mp4'); ?>" />
                           </video>
                         <?php else : ?>
@@ -411,6 +429,7 @@ Description: This part is optional, but helpful for describing the Post Template
               || $stay_has_icon_text_items($villa_features)
               || $stay_has_icon_text_items($villa_types);
             $villa_gallery = get_field('gallery_block', $villa_page_id);
+            $villa_poster = $stay_slide_poster($villa_page_id);
             ?>
             <article class="<?php echo esc_attr($card_classes); ?>" data-reveal>
               <div class="stay-feature__media stay-slider" data-stay-slider>
@@ -460,7 +479,7 @@ Description: This part is optional, but helpful for describing the Post Template
                       ?>
                       <div class="stay-slider__slide<?php echo $slide_index === 0 ? ' is-active' : ''; ?>" data-stay-slide>
                         <?php if ($is_video) : ?>
-                          <video muted loop playsinline preload="metadata" data-stay-slide-video>
+                          <video muted loop playsinline preload="metadata" data-stay-slide-video<?php echo $villa_poster !== '' ? ' poster="' . esc_url($villa_poster) . '"' : ''; ?>>
                             <source src="<?php echo esc_url($media_url); ?>" type="<?php echo esc_attr($media_mime !== '' ? $media_mime : 'video/mp4'); ?>" />
                           </video>
                         <?php else : ?>
