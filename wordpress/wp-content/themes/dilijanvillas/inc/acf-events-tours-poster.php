@@ -2,13 +2,16 @@
 /**
  * "Events and activates" → Tours: per-row poster image for the home page card.
  *
- * The home page events grid picks the first item of the tour gallery, so a tour
- * whose gallery starts on a video falls back to the shared page background and
- * the editor has no way to choose the still per card. This adds a "Poster"
- * image subfield to the Tours repeater. That field group lives in the database
- * (not in acf-json), and a local subfield would hide the group's own database
- * subfields — ACF reads either the local children or the database ones, never
- * both — so the subfield is written into the database once instead.
+ * The home page events grid shows the first item of the tour gallery, so a tour
+ * whose gallery opens on a video falls back to the shared page background and
+ * the editor cannot choose the still per card.
+ *
+ * The events field group is not stored in the database — it ships as local JSON
+ * (acf-json/group_6a00dd1619d2a.json), and for a local group ACF reads the
+ * fields from its local store and ignores the acf-field rows in the database
+ * entirely. So the subfield is registered the same way the group itself is:
+ * as a local field parented to the Tours repeater. It is appended right after
+ * the JSON group is included, which puts it last in every Tours row.
  *
  * @package dilijanvillas
  */
@@ -17,110 +20,114 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-if (!defined('DILIJANVILLAS_EVENTS_TOURS_POSTER_VERSION')) {
-    define('DILIJANVILLAS_EVENTS_TOURS_POSTER_VERSION', '1');
-}
-
 /** Tours repeater of the "Events and activates" field group. */
 if (!defined('DILIJANVILLAS_EVENTS_TOURS_FIELD_KEY')) {
     define('DILIJANVILLAS_EVENTS_TOURS_FIELD_KEY', 'field_6a00ee85a1ab8');
 }
 
-/** Poster subfield created by this file. */
+/** Poster subfield added by this file. */
 if (!defined('DILIJANVILLAS_EVENTS_TOURS_POSTER_FIELD_KEY')) {
     define('DILIJANVILLAS_EVENTS_TOURS_POSTER_FIELD_KEY', 'field_dv_tours_poster');
 }
 
 /**
- * Locate the Tours repeater field.
+ * Settings of the poster subfield.
  *
- * The key lookup covers the current database; the name lookup is the fallback
- * for a database where the group was re-created. The events group also holds a
- * tab named "tours", hence the type check.
- *
- * @return array Field array, or an empty array when not found.
+ * @return array
  */
-function dilijanvillas_get_events_tours_repeater()
+function dilijanvillas_events_tours_poster_field_settings()
 {
-    if (!function_exists('acf_get_field')) {
-        return array();
-    }
-
-    $field = acf_get_field(DILIJANVILLAS_EVENTS_TOURS_FIELD_KEY);
-    if (is_array($field) && !empty($field['ID']) && ($field['type'] ?? '') === 'repeater') {
-        return $field;
-    }
-
-    $field_posts = get_posts(
-        array(
-            'post_type' => 'acf-field',
-            'post_status' => 'publish',
-            'posts_per_page' => -1,
-            'orderby' => 'menu_order',
-            'order' => 'ASC',
-            'suppress_filters' => false,
-            'update_post_meta_cache' => false,
-            'update_post_term_cache' => false,
-            'acf_field_name' => 'tours',
-        )
+    return array(
+        'key' => DILIJANVILLAS_EVENTS_TOURS_POSTER_FIELD_KEY,
+        'parent' => DILIJANVILLAS_EVENTS_TOURS_FIELD_KEY,
+        'label' => 'Poster (home page card)',
+        'name' => 'poster',
+        'type' => 'image',
+        'instructions' => 'Image for this tour in the "Events and activities" cards on the home page. Leave empty to keep using the gallery.',
+        'required' => 0,
+        'return_format' => 'url',
+        'preview_size' => 'medium',
+        'library' => 'all',
     );
-
-    foreach ($field_posts as $field_post) {
-        $candidate = acf_get_field($field_post->post_name);
-        if (is_array($candidate) && !empty($candidate['ID']) && ($candidate['type'] ?? '') === 'repeater') {
-            return $candidate;
-        }
-    }
-
-    return array();
 }
 
 /**
- * Add the "Poster" subfield to the Tours repeater once.
+ * Whether the repeater already carries a "poster" subfield.
+ *
+ * Saving the field group in wp-admin persists whatever the editor screen shows,
+ * including this subfield, so the check keeps it from being added twice.
+ *
+ * @param array $sub_fields Subfields of the repeater.
+ * @return bool
  */
-function dilijanvillas_install_events_tours_poster_field()
+function dilijanvillas_events_tours_has_poster_field($sub_fields)
 {
-    if (!function_exists('acf_get_field') || !function_exists('acf_update_field') || !function_exists('acf_get_fields')) {
-        return;
-    }
-
-    if ((string) get_option('dilijanvillas_events_tours_poster_field', '') === DILIJANVILLAS_EVENTS_TOURS_POSTER_VERSION) {
-        return;
-    }
-
-    $repeater = dilijanvillas_get_events_tours_repeater();
-    if (empty($repeater['ID'])) {
-        // The group may not be imported yet — retry on a later request.
-        return;
-    }
-
-    $sub_fields = !empty($repeater['sub_fields']) && is_array($repeater['sub_fields'])
-        ? $repeater['sub_fields']
-        : acf_get_fields($repeater);
-
     foreach ((array) $sub_fields as $sub_field) {
         if (is_array($sub_field) && ($sub_field['name'] ?? '') === 'poster') {
-            update_option('dilijanvillas_events_tours_poster_field', DILIJANVILLAS_EVENTS_TOURS_POSTER_VERSION, false);
-            return;
+            return true;
         }
     }
 
-    acf_update_field(
-        array(
-            'key' => DILIJANVILLAS_EVENTS_TOURS_POSTER_FIELD_KEY,
-            'label' => 'Poster (home page card)',
-            'name' => 'poster',
-            'type' => 'image',
-            'instructions' => 'Image for this tour in the "Events and activities" cards on the home page. Leave empty to keep using the gallery.',
-            'required' => 0,
-            'return_format' => 'url',
-            'preview_size' => 'medium',
-            'library' => 'all',
-            'parent' => (int) $repeater['ID'],
-            'menu_order' => 20,
-        )
-    );
-
-    update_option('dilijanvillas_events_tours_poster_field', DILIJANVILLAS_EVENTS_TOURS_POSTER_VERSION, false);
+    return false;
 }
-add_action('acf/init', 'dilijanvillas_install_events_tours_poster_field', 25);
+
+/**
+ * Append the poster subfield to the local Tours repeater.
+ *
+ * Runs on acf/include_fields after the local JSON groups are registered, and
+ * reads only the local store: acf_get_field() would cache the repeater without
+ * the new subfield for the rest of the request.
+ */
+function dilijanvillas_register_events_tours_poster_field()
+{
+    if (!function_exists('acf_get_local_field') || !function_exists('acf_add_local_field')) {
+        return;
+    }
+
+    $repeater = acf_get_local_field(DILIJANVILLAS_EVENTS_TOURS_FIELD_KEY);
+    if (!is_array($repeater) || ($repeater['type'] ?? '') !== 'repeater') {
+        // Group lives in the database — handled by the load_field filter below.
+        return;
+    }
+
+    if (dilijanvillas_events_tours_has_poster_field(acf_get_local_fields(DILIJANVILLAS_EVENTS_TOURS_FIELD_KEY))) {
+        return;
+    }
+
+    acf_add_local_field(dilijanvillas_events_tours_poster_field_settings());
+}
+add_action('acf/include_fields', 'dilijanvillas_register_events_tours_poster_field', 20);
+
+/**
+ * Same subfield for a database-stored repeater.
+ *
+ * A local subfield cannot be used there: ACF reads either the local children or
+ * the database ones, so registering it locally would hide the group's own
+ * subfields. Appending on load keeps both.
+ *
+ * @param array $field Repeater field.
+ * @return array
+ */
+function dilijanvillas_append_events_tours_poster_field($field)
+{
+    if (!is_array($field) || ($field['type'] ?? '') !== 'repeater') {
+        return $field;
+    }
+
+    if (function_exists('acf_is_local_field') && acf_is_local_field(DILIJANVILLAS_EVENTS_TOURS_FIELD_KEY)) {
+        return $field;
+    }
+
+    $sub_fields = isset($field['sub_fields']) && is_array($field['sub_fields']) ? $field['sub_fields'] : array();
+    if (dilijanvillas_events_tours_has_poster_field($sub_fields)) {
+        return $field;
+    }
+
+    $poster = dilijanvillas_events_tours_poster_field_settings();
+    $poster['parent'] = $field['key'];
+    $sub_fields[] = function_exists('acf_validate_field') ? acf_validate_field($poster) : $poster;
+    $field['sub_fields'] = $sub_fields;
+
+    return $field;
+}
+add_filter('acf/load_field/key=' . DILIJANVILLAS_EVENTS_TOURS_FIELD_KEY, 'dilijanvillas_append_events_tours_poster_field');
