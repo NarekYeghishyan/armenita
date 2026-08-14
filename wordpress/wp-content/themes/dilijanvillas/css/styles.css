@@ -4807,6 +4807,10 @@ body:has(.error404-main) .footer__brand-row {
   padding-top: 40px;
 }
 
+.privacy-policy__content {
+  margin-bottom: 64px;
+}
+
 /* Short legal copy leaves empty space under the footer, so stretch the page to
    the viewport and let the content take the slack. */
 body:has(.privacy-policy) {
