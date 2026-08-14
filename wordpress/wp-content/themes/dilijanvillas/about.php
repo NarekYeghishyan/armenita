@@ -98,8 +98,10 @@
                 endforeach;
               endif;
             ?>
-            <button type="button" class="about-slider__nav about-slider__nav--prev" data-about-prev aria-label="Previous media">‹</button>
-            <button type="button" class="about-slider__nav about-slider__nav--next" data-about-next aria-label="Next media">›</button>
+            <?php if ($rendered_slide_index > 1) : ?>
+              <button type="button" class="about-slider__nav about-slider__nav--prev" data-about-prev aria-label="Previous media">‹</button>
+              <button type="button" class="about-slider__nav about-slider__nav--next" data-about-next aria-label="Next media">›</button>
+            <?php endif; ?>
           </div>
           <?php
             $about_story_text = (string) get_field('description_2_section');

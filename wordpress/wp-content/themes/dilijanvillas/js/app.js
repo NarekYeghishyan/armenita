@@ -1368,6 +1368,16 @@
       let current = Math.max(0, slides.findIndex((img) => img.classList.contains("is-active")));
       if (current < 0) current = 0;
 
+      // A single slide has nowhere to go: drop the arrows (cached markup may
+      // still carry them) and leave the autoplay loop off.
+      if (slides.length < 2) {
+        if (prev) prev.remove();
+        if (next) next.remove();
+        initSliderZoom(slider, slides, () => current, { block: "about-slider" });
+        slides.forEach((img, i) => img.classList.toggle("is-active", i === current));
+        return;
+      }
+
       // The slides here are the <img>/<video> elements themselves, and the
       // arrows are their siblings, so the whole slider box is the click target.
       initSliderZoom(slider, slides, () => current, { block: "about-slider" });
