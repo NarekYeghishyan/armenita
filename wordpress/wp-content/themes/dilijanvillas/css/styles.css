@@ -3417,12 +3417,16 @@ button,
   border: 1px solid rgba(255, 255, 255, 0.09);
 }
 
+/* The card is the poster: clicking it opens the clip in the Fancybox player. */
 .videos-showcase__inner {
+  position: relative;
+  display: block;
   width: 100%;
   height: min(82vh, 720px);
   min-height: 400px;
   max-height: min(82vh, 720px);
   background: #0f0c0a;
+  cursor: pointer;
 }
 
 .videos-showcase__video {
@@ -3433,6 +3437,93 @@ button,
   max-height: none;
   object-fit: cover;
   background: #0f0c0a;
+  pointer-events: none;
+}
+
+/* Keeps the play button readable over a bright frame. */
+.videos-showcase__inner::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center, rgba(9, 6, 4, 0.42) 0%, rgba(9, 6, 4, 0.14) 42%, rgba(9, 6, 4, 0.34) 100%);
+  opacity: 0.9;
+  transition: opacity 0.35s ease;
+  pointer-events: none;
+}
+
+.videos-showcase__inner:hover::after,
+.videos-showcase__inner:focus-visible::after {
+  opacity: 0.65;
+}
+
+.videos-showcase__play {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 5.25rem;
+  height: 5.25rem;
+  margin: auto;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(15, 11, 9, 0.55);
+  color: var(--text);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.45);
+  transition: transform 0.35s ease, background-color 0.35s ease, border-color 0.35s ease, color 0.35s ease;
+  pointer-events: none;
+}
+
+.videos-showcase__play svg {
+  width: 2rem;
+  height: 2rem;
+  /* The triangle's visual mass sits left of its box — nudge it back to centre. */
+  margin-left: 0.2rem;
+}
+
+/* Slow halo so the button reads as "playable" without competing with the frame. */
+.videos-showcase__play::before {
+  content: "";
+  position: absolute;
+  inset: -0.55rem;
+  border-radius: inherit;
+  border: 1px solid rgba(200, 154, 94, 0.45);
+  animation: videos-play-halo 2.8s ease-out infinite;
+}
+
+.videos-showcase__inner:hover .videos-showcase__play,
+.videos-showcase__inner:focus-visible .videos-showcase__play {
+  transform: scale(1.09);
+  background: rgba(200, 154, 94, 0.92);
+  border-color: transparent;
+  color: #17110c;
+}
+
+.videos-showcase__inner:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -4px;
+}
+
+@keyframes videos-play-halo {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.75;
+  }
+  70% {
+    transform: scale(1.18);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.18);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .videos-showcase__play::before {
+    animation: none;
+  }
 }
 
 .video-card__inner {

@@ -101,6 +101,14 @@ function dilijanvillas_current_page_uses_fancybox()
         return true;
     }
 
+    // Home page: the videos section opens its clips in the Fancybox player, so
+    // the library is only worth loading when that repeater actually has rows.
+    if (is_front_page()) {
+        $home_videos = function_exists('get_field') ? get_field('videos_home', $page_id) : null;
+
+        return !empty($home_videos) && is_array($home_videos);
+    }
+
     $template = str_replace('\\', '/', (string) get_page_template_slug($page_id));
     if ($template === '') {
         return false;
@@ -259,6 +267,38 @@ function dilijanvillas_get_video_mime_from_url($url)
     }
 
     return 'video/mp4';
+}
+
+/**
+ * Aspect ratio of an uploaded video, as the "width/height" string Fancybox reads
+ * from data-video-ratio.
+ *
+ * Fancybox sizes an html5video slide 16/9 unless told otherwise, which letterboxes
+ * the portrait clips the home page section is made of. WordPress stores the real
+ * dimensions in the attachment metadata, so read them from there and stay quiet
+ * when the URL belongs to no attachment — Fancybox then keeps its own default.
+ *
+ * @param string $url Video file URL.
+ * @return string "1080/1920", or an empty string when unknown.
+ */
+function dilijanvillas_get_video_aspect_ratio($url)
+{
+    $url = trim((string) $url);
+    if ($url === '') {
+        return '';
+    }
+
+    $attachment_id = (int) attachment_url_to_postid($url);
+    if ($attachment_id <= 0) {
+        return '';
+    }
+
+    $meta = wp_get_attachment_metadata($attachment_id);
+    if (empty($meta['width']) || empty($meta['height'])) {
+        return '';
+    }
+
+    return (int) $meta['width'] . '/' . (int) $meta['height'];
 }
 
 /**

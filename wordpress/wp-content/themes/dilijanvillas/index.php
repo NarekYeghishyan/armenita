@@ -508,14 +508,35 @@
             }
           ?>
           <h2 class="section__title section__title--center reveal" data-reveal><?php echo esc_html($videos_section_title); ?></h2>
+          <?php
+            $videos_lang = function_exists('pll_current_language') ? pll_current_language('slug') : '';
+            $videos_play_label = ($videos_lang === 'ru' ? 'Смотреть видео' : ($videos_lang === 'en' ? 'Play video' : 'Դիտել տեսանյութը'));
+          ?>
           <div class="videos-showcase">
             <?php foreach ($videos_home_urls as $showcase_video_url) : ?>
+              <?php $showcase_video_ratio = dilijanvillas_get_video_aspect_ratio($showcase_video_url); ?>
               <figure class="videos-showcase__item reveal" data-reveal>
-                <div class="videos-showcase__inner">
-                  <video class="videos-showcase__video" controls playsinline preload="metadata">
-                    <source src="<?php echo esc_url($showcase_video_url); ?>" type="<?php echo esc_attr(dilijanvillas_get_video_mime_from_url($showcase_video_url)); ?>" />
+                <a
+                  class="videos-showcase__inner"
+                  href="<?php echo esc_url($showcase_video_url); ?>"
+                  data-fancybox="videos-home"
+                  <?php if ($showcase_video_ratio !== '') : ?>data-video-ratio="<?php echo esc_attr($showcase_video_ratio); ?>"<?php endif; ?>
+                  aria-label="<?php echo esc_attr($videos_play_label); ?>"
+                >
+                  <?php
+                    /**
+                     * Кадр для карточки: своего постера у ролика в CMS нет, поэтому
+                     * превью рисует сам <video> — фрагмент #t=0.1 заставляет браузер
+                     * отрисовать первый кадр, не дожидаясь воспроизведения.
+                     */
+                  ?>
+                  <video class="videos-showcase__video" muted playsinline preload="metadata" tabindex="-1" aria-hidden="true">
+                    <source src="<?php echo esc_url($showcase_video_url . '#t=0.1'); ?>" type="<?php echo esc_attr(dilijanvillas_get_video_mime_from_url($showcase_video_url)); ?>" />
                   </video>
-                </div>
+                  <span class="videos-showcase__play" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="currentColor" focusable="false" aria-hidden="true"><path d="M8.6 5.2a1 1 0 0 1 1.02.04l8 5a1 1 0 0 1 0 1.7l-8 5A1 1 0 0 1 8 16.1V6.05a1 1 0 0 1 .6-.85z"/></svg>
+                  </span>
+                </a>
               </figure>
             <?php endforeach; ?>
           </div>

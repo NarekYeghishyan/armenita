@@ -1273,24 +1273,6 @@
     });
   }
 
-  /**
-   * Videos section of the home page. These clips carry sound and are started by
-   * hand, so starting one has to stop whatever else is already running there —
-   * otherwise two soundtracks play over each other.
-   */
-  function initVideoGallery() {
-    const videos = Array.from(document.querySelectorAll(".videos-showcase__video"));
-    if (videos.length < 2) return;
-
-    videos.forEach((video) => {
-      video.addEventListener("play", () => {
-        videos.forEach((other) => {
-          if (other !== video && !other.paused) other.pause();
-        });
-      });
-    });
-  }
-
   /** Keep home / events quick-card videos playing (muted autoplay is often blocked until play()). */
   function initEventsQuickVideos() {
     const videos = Array.from(document.querySelectorAll(".events-quick__video"));
@@ -1571,7 +1553,8 @@
     };
   }
 
-  // Gallery page grid (template-parts/sections/gallery-grid.php with use_fancybox).
+  // Gallery page grid (template-parts/sections/gallery-grid.php with use_fancybox)
+  // and the home page videos section, whose cards open their clip in the player.
   // Other grids keep the built-in #lightbox above.
   function initFancyboxGallery() {
     const fancybox = window.Fancybox;
@@ -2895,7 +2878,6 @@
     initReveal();
     initAboutSliders();
     initVideo();
-    initVideoGallery();
     initEventsQuickVideos();
     initGalleryLightbox();
     initFancyboxGallery();
