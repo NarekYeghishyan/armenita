@@ -463,6 +463,21 @@
         ?>
       <?php endif; ?>
 
+      <?php
+        // Collect the playable videos up front so the section can be dropped
+        // entirely when the field holds nothing (or only empty rows).
+        $videos_home_urls = array();
+        $videos_home_items = get_field('videos_home');
+        if (!empty($videos_home_items) && is_array($videos_home_items)) {
+          foreach ($videos_home_items as $video) {
+            $showcase_video_url = is_array($video) && isset($video['video']) ? trim((string) $video['video']) : '';
+            if ($showcase_video_url !== '') {
+              $videos_home_urls[] = $showcase_video_url;
+            }
+          }
+        }
+      ?>
+      <?php if (!empty($videos_home_urls)) : ?>
       <section class="section section--videos" id="videos" aria-label="Videos">
         <div class="section__bg section__bg--parallax section__bg--videos" data-parallax-bg style="--parallax-speed: 0.16; background-image: url('<?php the_field('background_of_section') ?>')"></div>
         <div class="container">
@@ -474,16 +489,11 @@
           ?>
           <h2 class="section__title section__title--center reveal" data-reveal><?php echo esc_html($videos_section_title); ?></h2>
           <div class="videos-showcase">
-            <?php foreach (get_field('videos_home') as $video): ?>
+            <?php foreach ($videos_home_urls as $showcase_video_url) : ?>
               <figure class="videos-showcase__item reveal" data-reveal>
                 <div class="videos-showcase__inner">
                   <video class="videos-showcase__video" controls playsinline preload="metadata">
-                    <?php
-                      $showcase_video_url = is_array($video) && isset($video['video']) ? trim((string) $video['video']) : '';
-                    ?>
-                    <?php if ($showcase_video_url !== '') : ?>
-                      <source src="<?php echo esc_url($showcase_video_url); ?>" type="<?php echo esc_attr(dilijanvillas_get_video_mime_from_url($showcase_video_url)); ?>" />
-                    <?php endif; ?>
+                    <source src="<?php echo esc_url($showcase_video_url); ?>" type="<?php echo esc_attr(dilijanvillas_get_video_mime_from_url($showcase_video_url)); ?>" />
                   </video>
                 </div>
               </figure>
@@ -491,6 +501,7 @@
           </div>
         </div>
       </section>
+      <?php endif; ?>
 
       <?php
         $ratings_lang = function_exists('pll_current_language') ? pll_current_language() : '';
