@@ -1273,12 +1273,19 @@
     });
   }
 
+  /**
+   * Videos section of the home page. These clips carry sound and are started by
+   * hand, so starting one has to stop whatever else is already running there —
+   * otherwise two soundtracks play over each other.
+   */
   function initVideoGallery() {
-    const videos = document.querySelectorAll(".video-card__inner video");
-    videos.forEach((v) => {
-      v.addEventListener("play", () => {
-        videos.forEach((o) => {
-          if (o !== v) o.pause();
+    const videos = Array.from(document.querySelectorAll(".videos-showcase__video"));
+    if (videos.length < 2) return;
+
+    videos.forEach((video) => {
+      video.addEventListener("play", () => {
+        videos.forEach((other) => {
+          if (other !== video && !other.paused) other.pause();
         });
       });
     });
