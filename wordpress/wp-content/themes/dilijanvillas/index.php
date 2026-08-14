@@ -319,7 +319,13 @@
               $home_events_poster = dilijanvillas_get_acf_media_url('beground_img', (int) $home_events_page_ids[0]);
             }
 
-            $home_event_resolve_media = static function ($gallery) use ($home_events_poster) {
+            $home_event_resolve_media = static function ($gallery, $card_poster = '') use ($home_events_poster) {
+              /** Постер карточки задан вручную для этой позиции — показываем именно его. */
+              $card_poster = trim((string) $card_poster);
+              if ($card_poster !== '') {
+                return array('url' => $card_poster, 'type' => 'image', 'mime' => '', 'poster' => '');
+              }
+
               if (!is_array($gallery)) {
                 return array('url' => '', 'type' => '', 'mime' => '', 'poster' => '');
               }
@@ -386,10 +392,17 @@
             $home_tours = get_field('tours', $home_events_source_id);
             if (is_array($home_tours)) {
               foreach ($home_tours as $home_tour) {
+                /** Поле "Poster (home page card)" тура — картинка именно для этой карточки. */
+                $home_tour_poster = '';
+                if (!empty($home_tour['poster']) && function_exists('dilijanvillas_extract_media_from_source')) {
+                  $home_tour_poster_media = dilijanvillas_extract_media_from_source($home_tour['poster']);
+                  $home_tour_poster = isset($home_tour_poster_media['url']) ? trim((string) $home_tour_poster_media['url']) : '';
+                }
                 $home_event_cards[] = array(
                   'anchor' => 'tours',
                   'description' => isset($home_tour['description']) ? (string) $home_tour['description'] : '',
                   'gallery' => isset($home_tour['gallery']) ? $home_tour['gallery'] : array(),
+                  'poster' => $home_tour_poster,
                 );
               }
             }
@@ -400,13 +413,17 @@
                   'anchor' => 'diving',
                   'description' => isset($home_diving_item['description']) ? (string) $home_diving_item['description'] : '',
                   'gallery' => isset($home_diving_item['gallery']) ? $home_diving_item['gallery'] : array(),
+                  'poster' => '',
                 );
               }
             }
             ?>
 
             <?php foreach ($home_event_cards as $home_event_card) :
-              $home_event_media = $home_event_resolve_media($home_event_card['gallery']);
+              $home_event_media = $home_event_resolve_media(
+                $home_event_card['gallery'],
+                isset($home_event_card['poster']) ? $home_event_card['poster'] : ''
+              );
               $home_event_link = $home_events_page_url !== ''
                 ? $home_events_page_url . '#' . $home_event_card['anchor']
                 : '#' . $home_event_card['anchor'];

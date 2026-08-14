@@ -38,6 +38,7 @@ require_once get_template_directory() . '/inc/acf-polylang-locations.php';
 require_once get_template_directory() . '/inc/acf-seo.php';
 require_once get_template_directory() . '/inc/acf-gallery-page.php';
 require_once get_template_directory() . '/inc/acf-stay-unit-fields.php';
+require_once get_template_directory() . '/inc/acf-events-tours-poster.php';
 require_once get_template_directory() . '/inc/google-reviews.php';
 
 function dilijanvillas_theme_setup()
