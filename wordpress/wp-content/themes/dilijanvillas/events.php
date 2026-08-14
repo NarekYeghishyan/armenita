@@ -77,6 +77,49 @@ Description: Events and activates page
       </section>
       </div>
 
+      <?php
+        /**
+         * A card video paints nothing until the clip has buffered a first frame,
+         * so the slide sits black. Poster it with this page's own "Background
+         * image" (beground_img) — the same still the home page events cards
+         * use — and fall back to the first photo of that card's own gallery.
+         */
+        $events_page_poster = function_exists('dilijanvillas_get_acf_media_url')
+          ? dilijanvillas_get_acf_media_url('beground_img')
+          : '';
+
+        $events_gallery_poster = static function ($gallery_items) use ($events_page_poster) {
+          if ($events_page_poster !== '' || !is_array($gallery_items)) {
+            return $events_page_poster;
+          }
+
+          foreach ($gallery_items as $gallery_item) {
+            $media_source = $gallery_item;
+            if (is_array($gallery_item) && array_key_exists('image_or_video', $gallery_item)) {
+              $media_source = $gallery_item['image_or_video'];
+            }
+
+            $extracted = function_exists('dilijanvillas_extract_media_from_source')
+              ? dilijanvillas_extract_media_from_source($media_source)
+              : array('url' => '', 'mime' => '');
+            $candidate_url = isset($extracted['url']) ? trim((string) $extracted['url']) : '';
+            $candidate_mime = isset($extracted['mime']) ? (string) $extracted['mime'] : '';
+            if ($candidate_url === '') {
+              continue;
+            }
+
+            $candidate_is_video = function_exists('dilijanvillas_is_video_media')
+              ? dilijanvillas_is_video_media($candidate_url, $candidate_mime)
+              : (strpos($candidate_mime, 'video/') === 0);
+            if (!$candidate_is_video) {
+              return $candidate_url;
+            }
+          }
+
+          return '';
+        };
+      ?>
+
       <section class="section events-page" id="tours">
         <div class="container">
           <h2 class="section__title section__title--center reveal" data-reveal><?php the_field('title_toure') ?></h2>
@@ -108,6 +151,7 @@ Description: Events and activates page
                         $events_gallery_items = get_field('gallery');
                       }
                       $events_rendered_slide_index = 0;
+                      $events_tour_poster = $events_gallery_poster($events_gallery_items);
                       if (!empty($events_gallery_items) && is_array($events_gallery_items)) :
                         foreach ($events_gallery_items as $gallery_item) :
                           $media_url = '';
@@ -154,7 +198,7 @@ Description: Events and activates page
                     ?>
                       <div class="<?php echo esc_attr($slide_class); ?>" data-stay-slide>
                         <?php if ($is_video) : ?>
-                          <video autoplay muted loop playsinline preload="metadata">
+                          <video autoplay muted loop playsinline preload="metadata"<?php echo $events_tour_poster !== '' ? ' poster="' . esc_url($events_tour_poster) . '"' : ''; ?>>
                             <source src="<?php echo esc_url($media_url); ?>" type="<?php echo esc_attr($media_mime !== '' ? $media_mime : 'video/mp4'); ?>" />
                           </video>
                         <?php else : ?>
@@ -204,6 +248,7 @@ Description: Events and activates page
                       <?php
                         $diving_gallery_items = $diving['gallery'];
                         $diving_rendered_slide_index = 0;
+                        $diving_poster = $events_gallery_poster($diving_gallery_items);
                         if (!empty($diving_gallery_items) && is_array($diving_gallery_items)) :
                           foreach ($diving_gallery_items as $gallery_item) :
                             $media_url = '';
@@ -250,7 +295,7 @@ Description: Events and activates page
                       ?>
                         <div class="<?php echo esc_attr($slide_class); ?>" data-stay-slide>
                           <?php if ($is_video) : ?>
-                            <video autoplay muted loop playsinline preload="metadata">
+                            <video autoplay muted loop playsinline preload="metadata"<?php echo $diving_poster !== '' ? ' poster="' . esc_url($diving_poster) . '"' : ''; ?>>
                               <source src="<?php echo esc_url($media_url); ?>" type="<?php echo esc_attr($media_mime !== '' ? $media_mime : 'video/mp4'); ?>" />
                             </video>
                           <?php else : ?>
